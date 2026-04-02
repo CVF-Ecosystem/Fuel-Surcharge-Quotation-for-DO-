@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --color-petrolimex-blue: #005596;
+  --color-petrolimex-orange: #F37021;
+}
+
+/* Custom styles for Quotation Module (Phase 5) */
+.quotation-a4-wrapper { 
+    position: absolute; 
+    left: -9999px; 
+    top: 0; 
+    background: white; 
+    width: 210mm; 
+    min-height: 297mm; 
+    padding: 15mm; 
+    box-sizing: border-box; 
+    font-size: 11pt; 
+    color: #333; 
+    display: block;
+}
+
+.custom-list {
+    list-style: none;
+    padding-left: 0;
+}
+.custom-list li {
+    padding-left: 1.5em;
+    position: relative;
+    margin-bottom: 4px;
+}
+.custom-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    color: #28a745;
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+.calculation-picker {
+    display: none;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.calculation-picker.visible {
+    display: flex;
+}
+.calculation-picker label {
+    font-size: 0.8rem;
+    color: #555;
+    white-space: nowrap;
+}
+.calculation-picker input {
+    padding: 4px 6px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background-color: white;
+    cursor: pointer;
+}
+
+.flatpickr-calendar {
+    font-family: inherit;
+}
+
+/* Response Grid fallback */
+@media screen and (max-width: 1024px) {
+    .responsive-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+    }
+    
+    /* Make table wrappers always visible and scrollable */
+    .overflow-x-auto {
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+    }
+}

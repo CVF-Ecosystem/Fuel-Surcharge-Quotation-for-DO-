@@ -1,0 +1,5 @@
+{
+  "name": "Petrolimex Price Tracker",
+  "description": "Daily fuel price tracker and surcharge calculator for Petrolimex RON 95, E5 RON 92, and Diesel.",
+  "requestFramePermissions": []
+}
