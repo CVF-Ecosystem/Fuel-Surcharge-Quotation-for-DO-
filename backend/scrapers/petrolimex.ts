@@ -1,5 +1,4 @@
 import axios from "axios";
-import * as cheerio from "cheerio";
 import { getFallbackConfig, logAudit } from "../config.js";
 import { query, execute } from "../db.js";
 
@@ -32,75 +31,97 @@ export function clearCache(): void {
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const FUEL_TYPE = "Dầu DO 0,05S-II";
+const FUEL_TITLE_MATCH = "DO 0,05S-II"; // Title in VIEApps API response
 
 function todayStr(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-function extractDateFromTitle(title: string): string | null {
-  const m = title.match(/ngày\s+(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/i);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return null;
+// ─── Strategy 1: VIEApps Portals API (real price from Petrolimex website) ─────
+// This is the same API that powers the "Giá bán lẻ xăng dầu" hover panel
+// on petrolimex.com.vn — returns actual Zone1/Zone2 prices as structured JSON.
+interface VieAppsProduct {
+  ID: string;
+  Title: string;
+  Zone1Price: number;
+  Zone2Price: number;
+  LastModified: string;
 }
 
-// ─── Strategy 1: RSS Feed ─────────────────────────────────────────────────────
-async function findLatestAdjustmentFromRSS(): Promise<{
-  title: string; url: string; effectiveDate: string;
+async function fetchFromVieAppsAPI(): Promise<{
+  priceV1: number;
+  effectiveDate: string;
+  lastModified: string;
+  allProducts: VieAppsProduct[];
 } | null> {
   try {
-    const res = await axios.get("https://www.petrolimex.com.vn/rss", {
-      headers: { "User-Agent": UA, "Accept": "application/atom+xml, application/xml, text/xml" },
+    const requestPayload = {
+      FilterBy: {
+        And: [
+          { SystemID: { Equals: "6783dc1271ff449e95b74a9520964169" } },
+          { RepositoryID: { Equals: "a95451e23b474fe5886bfb7cf843f53c" } },
+          { RepositoryEntityID: { Equals: "3801378fe1e045b1afa10de7c5776124" } },
+          { Status: { Equals: "Published" } },
+        ],
+      },
+      SortBy: { LastModified: "Descending" },
+      Pagination: { TotalRecords: -1, TotalPages: 0, PageSize: 0, PageNumber: 0 },
+    };
+    const b64 = Buffer.from(JSON.stringify(requestPayload))
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    const url = `https://portals.petrolimex.com.vn/~apis/portals/cms.item/search?x-request=${encodeURIComponent(b64)}`;
+
+    const res = await axios.get(url, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
       timeout: 15000,
     });
-    const $ = cheerio.load(res.data, { xml: true });
-    let found: { title: string; url: string; effectiveDate: string } | null = null;
 
-    $("entry").each((_i, entry) => {
-      if (found) return;
-      const title = $(entry).find("title").text().trim();
-      const link = $(entry).find("link[rel='alternate']").attr("href") || "";
-      if (title.includes("điều chỉnh giá xăng dầu")) {
-        const effectiveDate = extractDateFromTitle(title);
-        if (effectiveDate) {
-          found = { title, url: link, effectiveDate };
-        }
-      }
-    });
-    return found;
+    const data = res.data;
+    if (!data?.Objects?.length) {
+      console.error("[Petrolimex API] Không có sản phẩm nào trong response");
+      return null;
+    }
+
+    const allProducts: VieAppsProduct[] = data.Objects.map((item: any) => ({
+      ID: item.ID,
+      Title: item.Title,
+      Zone1Price: item.Zone1Price,
+      Zone2Price: item.Zone2Price,
+      LastModified: item.LastModified,
+    }));
+
+    // Find DO 0,05S-II
+    const doProduct = allProducts.find(
+      (p) => p.Title === FUEL_TITLE_MATCH || p.Title.includes("DO 0,05S"),
+    );
+
+    if (!doProduct || !doProduct.Zone1Price) {
+      console.error("[Petrolimex API] Không tìm thấy sản phẩm DO 0,05S-II trong danh sách:", allProducts.map(p => p.Title));
+      return null;
+    }
+
+    // effectiveDate = date portion of LastModified (the most recent update across all products)
+    const latestModified = allProducts
+      .map(p => new Date(p.LastModified).getTime())
+      .reduce((a, b) => Math.max(a, b), 0);
+    const effectiveDate = new Date(latestModified).toISOString().split("T")[0];
+
+    console.log(`[Petrolimex API] ✅ Giá DO 0,05S-II Vùng 1: ${doProduct.Zone1Price.toLocaleString()}đ (cập nhật: ${effectiveDate})`);
+    console.log(`[Petrolimex API]    Tất cả sản phẩm: ${allProducts.map(p => `${p.Title}=${p.Zone1Price}`).join(", ")}`);
+
+    return {
+      priceV1: doProduct.Zone1Price,
+      effectiveDate,
+      lastModified: new Date(latestModified).toISOString(),
+      allProducts,
+    };
   } catch (e: any) {
-    console.error("[Petrolimex Scraper] RSS error:", e.message);
-    return null;
-  }
-}
-
-// ─── Strategy 2: Press releases page ──────────────────────────────────────────
-async function findLatestAdjustmentFromPressPage(): Promise<{
-  title: string; url: string; effectiveDate: string;
-} | null> {
-  try {
-    const res = await axios.get("https://www.petrolimex.com.vn/ndi/thong-cao-bao-chi.html", {
-      headers: { "User-Agent": UA, "Accept": "text/html" },
-      timeout: 15000,
-    });
-    const $ = cheerio.load(res.data);
-    let found: { title: string; url: string; effectiveDate: string } | null = null;
-
-    $("a").each((_i, el) => {
-      if (found) return;
-      const href = $(el).attr("href") || "";
-      const text = $(el).text().trim();
-      if (href.includes("dieu-chinh-gia-xang-dau")) {
-        const fullUrl = href.startsWith("http") ? href : `https://www.petrolimex.com.vn${href}`;
-        const effectiveDate = extractDateFromTitle(text);
-        if (effectiveDate) {
-          found = { title: text, url: fullUrl, effectiveDate };
-        }
-      }
-    });
-    return found;
-  } catch (e: any) {
-    console.error("[Petrolimex Scraper] Press page error:", e.message);
+    console.error("[Petrolimex API] Lỗi gọi VIEApps API:", e.message);
     return null;
   }
 }
@@ -115,35 +136,28 @@ export async function internalSyncLogic(force = false): Promise<SyncResult> {
   const today = todayStr();
   const fallbackCfg = await getFallbackConfig();
 
-  console.log("[Petrolimex Scraper] Đang kiểm tra RSS feed...");
-  let article = await findLatestAdjustmentFromRSS();
-
-  if (!article) {
-    console.log("[Petrolimex Scraper] RSS không có kết quả, thử trang Thông cáo...");
-    article = await findLatestAdjustmentFromPressPage();
-  }
+  // Strategy 1: VIEApps Portals API (real prices from petrolimex.com.vn)
+  console.log("[Petrolimex Scraper] Đang gọi VIEApps API (giá bán lẻ chính thức)...");
+  const apiResult = await fetchFromVieAppsAPI();
 
   let result: SyncResult;
 
-  if (article) {
-    console.log(`[Petrolimex Scraper] ✅ Bài điều chỉnh giá: "${article.title}"`);
-    console.log(`[Petrolimex Scraper]    Ngày hiệu lực: ${article.effectiveDate}, Giá fallback: ${fallbackCfg.price.toLocaleString()}đ`);
-
+  if (apiResult) {
     result = {
       success: true,
       data: {
         fuelType: FUEL_TYPE,
-        priceV1: fallbackCfg.price,
+        priceV1: apiResult.priceV1,
         date: today,
-        effectiveDate: article.effectiveDate,
-        source: `Petrolimex TCBC ngày ${article.effectiveDate}`,
-        articleUrl: article.url,
-        status: `OK - Giá điều hành: ${fallbackCfg.price.toLocaleString()}đ (hiệu lực ${article.effectiveDate})`,
+        effectiveDate: apiResult.effectiveDate,
+        source: `Petrolimex API (cập nhật ${apiResult.effectiveDate})`,
+        articleUrl: "https://www.petrolimex.com.vn/thong-tin-khach-hang.html#cuahangxangdau",
+        status: `CÀO THẬT từ web: ${apiResult.priceV1.toLocaleString()}đ (cập nhật ${apiResult.effectiveDate})`,
         parsedFromWeb: true,
       },
     };
   } else {
-    console.log("[Petrolimex Scraper] ⚠️ Không tìm thấy bài điều chỉnh giá → Fallback");
+    console.log("[Petrolimex Scraper] ⚠️ Không cào được giá từ web → Dùng giá fallback");
     result = {
       success: true,
       data: {
@@ -151,9 +165,9 @@ export async function internalSyncLogic(force = false): Promise<SyncResult> {
         priceV1: fallbackCfg.price,
         date: today,
         effectiveDate: fallbackCfg.date,
-        source: `Fallback (Giá điều hành ${fallbackCfg.date})`,
+        source: `⚠️ FALLBACK — Không cào được từ web. Giá lưu sẵn ngày ${fallbackCfg.date}`,
         articleUrl: "",
-        status: `Fallback - ${fallbackCfg.price.toLocaleString()}đ ngày ${fallbackCfg.date}`,
+        status: `FALLBACK: ${fallbackCfg.price.toLocaleString()}đ ngày ${fallbackCfg.date} — Hãy kiểm tra lại!`,
         parsedFromWeb: false,
       },
     };

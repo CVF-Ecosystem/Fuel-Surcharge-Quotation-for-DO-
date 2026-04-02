@@ -164,8 +164,12 @@ const AdminPanel: React.FC = () => {
       const json = await res.json();
       if (json.success && json.data) {
         setNewPriceV1(json.data.priceV1.toString());
-        setNewDate(json.data.date);
-        setSyncMsg(`✅ Lấy giá thành công: ${json.data.priceV1.toLocaleString()} đ — Bấm "+ Thêm" để lưu.`);
+        setNewDate(json.data.effectiveDate || json.data.date);
+        if (json.data.parsedFromWeb) {
+          setSyncMsg(`✅ Cào giá thật từ Petrolimex: ${json.data.priceV1.toLocaleString()} đ — Bấm "+ Thêm" để lưu.`);
+        } else {
+          setSyncMsg(`⚠️ Không cào được từ web! Đang dùng giá FALLBACK: ${json.data.priceV1.toLocaleString()} đ (ngày ${json.data.effectiveDate}) — Hãy kiểm tra lại trước khi lưu!`);
+        }
       } else {
         setSyncMsg("❌ " + (json.message || "Lỗi dữ liệu."));
       }
