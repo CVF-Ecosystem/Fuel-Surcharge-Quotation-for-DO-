@@ -6,6 +6,7 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '..', '');
   return {
+    root: __dirname,
     base: mode === 'production' ? '/QD209/' : '/',
     plugins: [react(), tailwindcss()],
     define: {
