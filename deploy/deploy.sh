@@ -36,14 +36,14 @@ echo "[3/5] Updating Nginx config..."
 mkdir -p /etc/nginx/snippets
 cp deploy/nginx.conf ${NGINX_SNIPPET}
 
-# Add include directive to tanthuan config if not already present
-if ! grep -q "qd209.conf" ${NGINX_TANTHUAN} 2>/dev/null; then
-    # Insert include line before the last closing brace of the SSL server block
-    sed -i '/listen 443 ssl/,/^}/ {
-        /^}/ i\    # QD209 Application\n    include /etc/nginx/snippets/qd209.conf;
-    }' ${NGINX_TANTHUAN}
-    echo "Added QD209 include to tanthuan Nginx config."
-fi
+# Add include directive to active tanthuan config if not already present
+# Check both sites-available and sites-enabled (some setups use files directly)
+for NGINX_CFG in /etc/nginx/sites-enabled/tanthuan /etc/nginx/sites-available/tanthuan; do
+    if [ -f "${NGINX_CFG}" ] && ! grep -q "qd209.conf" "${NGINX_CFG}" 2>/dev/null; then
+        sed -i '/root \/var\/www\/tanthuan-home;/a\    \n    # QD209 LogiPro Application\n    include /etc/nginx/snippets/qd209.conf;' "${NGINX_CFG}"
+        echo "Added QD209 include to ${NGINX_CFG}"
+    fi
+done
 nginx -t && systemctl reload nginx
 
 # 4. Restart app with PM2
