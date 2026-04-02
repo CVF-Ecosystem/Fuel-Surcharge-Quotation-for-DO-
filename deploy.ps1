@@ -31,8 +31,7 @@ if (-not $status) {
     Write-Host "No changes to commit. Pushing anyway..." -ForegroundColor Yellow
 } else {
     if (-not $m) {
-        $m = Read-Host "Commit message"
-        if (-not $m) { $m = "deploy: update $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
+        $m = "deploy: update $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
     }
     git commit -m $m
     if ($LASTEXITCODE -ne 0) { Write-Host "COMMIT FAILED" -ForegroundColor Red; exit 1 }
