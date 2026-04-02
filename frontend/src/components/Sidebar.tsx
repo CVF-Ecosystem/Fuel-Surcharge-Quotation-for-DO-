@@ -62,7 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className={S.logoIconBox}><Calculator className={S.logoIcon} /></div>
             <div className={S.logoTextCol}>
               <span className={S.logoTitle}>TAN THUAN</span>
-              <span className={S.logoSubtitle}>TienNM-Container Manager</span>
+              <span className={S.logoSubtitle}>TAN THUAN ECOSYSTEM</span>
             </div>
           </div>
         )}
@@ -109,7 +109,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         ) : (
           <button onClick={onLoginClick} className={cn(S.loginBtnBase, collapsed && S.loginBtnCollapsed)} title="Đăng nhập">
             <LogIn className={S.loginIcon} />
-            {!collapsed && <span className={S.loginLabel}>Đăng nhập</span>}
+            {(!collapsed || isMobile) && <span className={S.loginLabel}>Đăng nhập</span>}
           </button>
         )}
 
