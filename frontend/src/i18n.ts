@@ -24,7 +24,7 @@ const resources = {
         noData: "Chưa có dữ liệu"
       },
       nav: {
-        dashboard: "Bảng điều khiển",
+          dashboard: "Trang chủ",
         calculator: "Tính phụ thu",
         quotation: "Báo giá dịch vụ",
         registration: "Đăng ký dịch vụ",
