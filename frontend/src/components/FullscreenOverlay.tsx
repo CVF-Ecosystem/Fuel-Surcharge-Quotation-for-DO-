@@ -118,40 +118,40 @@ const FullscreenOverlay: React.FC<Props> = ({ onExit }) => {
           </div>
         </div>
 
-        {/* Row 2: Surcharge tables — fill remaining vertical space */}
-        <div className="grid grid-cols-12 gap-4 flex-1 min-h-0">
-          {/* Container surcharge */}
-          <div className="col-span-8 bg-white/5 backdrop-blur border border-white/10 rounded-2xl flex flex-col overflow-hidden">
-            <div className="px-6 py-3 border-b border-white/10 flex items-center gap-2 shrink-0">
+        {/* Row 2+3: Surcharge tables stacked — fill remaining vertical space */}
+        <div className="flex flex-col gap-4 flex-1 min-h-0">
+          {/* Container surcharge — top row */}
+          <div className="flex-1 bg-white/5 backdrop-blur border border-white/10 rounded-2xl flex flex-col overflow-hidden min-h-0">
+            <div className="px-6 py-2 border-b border-white/10 flex items-center gap-2 shrink-0">
               <div className="bg-indigo-500/20 p-1.5 rounded-md"><Fuel className="w-4 h-4 text-indigo-400" /></div>
               <h3 className="font-bold text-lg">Hàng Container — Bậc {tierIndex}</h3>
             </div>
-            <div className="flex-1 flex flex-col justify-center px-8 py-6">
+            <div className="flex-1 flex flex-col justify-center px-8 py-3">
               {currentTier ? (
                 <>
-                  <div className="grid grid-cols-4 gap-6 mb-6">
+                  <div className="grid grid-cols-4 gap-6 mb-3">
                     <div className="text-center">
-                      <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-3">20 Full</p>
-                      <p className="text-6xl 2xl:text-7xl font-black text-indigo-400 leading-none">{fmt(currentTier.surcharge20F)}</p>
-                      <p className="text-white/30 text-base font-bold mt-1">VND</p>
+                      <p className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-400/15 border border-indigo-300/30 text-indigo-100 text-sm font-extrabold uppercase tracking-widest mb-2 shadow-[0_0_20px_rgba(129,140,248,0.25)]">20 Full</p>
+                      <p className="text-5xl 2xl:text-6xl font-black text-indigo-400 leading-none">{fmt(currentTier.surcharge20F)}</p>
+                      <p className="text-white/30 text-sm font-bold mt-1">VND</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-3">40 Full</p>
-                      <p className="text-6xl 2xl:text-7xl font-black text-indigo-400 leading-none">{fmt(currentTier.surcharge40F)}</p>
-                      <p className="text-white/30 text-base font-bold mt-1">VND</p>
+                      <p className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-400/15 border border-indigo-300/30 text-indigo-100 text-sm font-extrabold uppercase tracking-widest mb-2 shadow-[0_0_20px_rgba(129,140,248,0.25)]">40 Full</p>
+                      <p className="text-5xl 2xl:text-6xl font-black text-indigo-400 leading-none">{fmt(currentTier.surcharge40F)}</p>
+                      <p className="text-white/30 text-sm font-bold mt-1">VND</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-3">20 Empty</p>
-                      <p className="text-6xl 2xl:text-7xl font-black text-emerald-400 leading-none">{fmt(currentTier.surcharge20E)}</p>
-                      <p className="text-white/30 text-base font-bold mt-1">VND</p>
+                      <p className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-sm font-extrabold uppercase tracking-widest mb-2 shadow-[0_0_20px_rgba(52,211,153,0.25)]">20 Empty</p>
+                      <p className="text-5xl 2xl:text-6xl font-black text-emerald-400 leading-none">{fmt(currentTier.surcharge20E)}</p>
+                      <p className="text-white/30 text-sm font-bold mt-1">VND</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-3">40 Empty</p>
-                      <p className="text-6xl 2xl:text-7xl font-black text-emerald-400 leading-none">{fmt(currentTier.surcharge40E)}</p>
-                      <p className="text-white/30 text-base font-bold mt-1">VND</p>
+                      <p className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-100 text-sm font-extrabold uppercase tracking-widest mb-2 shadow-[0_0_20px_rgba(52,211,153,0.25)]">40 Empty</p>
+                      <p className="text-5xl 2xl:text-6xl font-black text-emerald-400 leading-none">{fmt(currentTier.surcharge40E)}</p>
+                      <p className="text-white/30 text-sm font-bold mt-1">VND</p>
                     </div>
                   </div>
-                  <div className="border-t border-white/10 pt-4 text-center">
+                  <div className="border-t border-white/10 pt-2 text-center">
                     <span className="text-white/30 text-sm font-bold">Khoảng giá DO: </span>
                     <span className="text-white/60 text-sm font-bold">{fmt(currentTier.minPrice)} – {currentTier.maxPrice >= 99999 ? 'Trở lên' : fmt(currentTier.maxPrice)} VND</span>
                   </div>
@@ -162,26 +162,29 @@ const FullscreenOverlay: React.FC<Props> = ({ onExit }) => {
             </div>
           </div>
 
-          {/* Bulk cargo surcharge */}
-          <div className="col-span-4 bg-white/5 backdrop-blur border border-white/10 rounded-2xl flex flex-col overflow-hidden">
-            <div className="px-6 py-3 border-b border-white/10 flex items-center gap-2 shrink-0">
+          {/* Bulk cargo surcharge — bottom row */}
+          <div className="flex-1 bg-white/5 backdrop-blur border border-white/10 rounded-2xl flex flex-col overflow-hidden min-h-0">
+            <div className="px-6 py-2 border-b border-white/10 flex items-center gap-2 shrink-0">
               <div className="bg-emerald-500/20 p-1.5 rounded-md"><Fuel className="w-4 h-4 text-emerald-400" /></div>
               <h3 className="font-bold text-lg">Hàng Ngoài Container — Bậc {bulkTierIndex}</h3>
             </div>
-            <div className="flex-1 flex flex-col items-center justify-center px-6 py-6">
+            <div className="flex-1 flex items-center justify-center px-8 py-3">
               {activeBulk ? (
-                <>
-                  <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-4">Mức phụ thu</p>
-                  <div className="mb-6">
-                    <span className="text-8xl 2xl:text-9xl font-black text-emerald-400 leading-none">{Number(activeBulk.percentSurcharge).toFixed(0)}</span>
-                    <span className="text-4xl 2xl:text-5xl font-black text-emerald-400/70 ml-0.5 align-top">.{Number(activeBulk.percentSurcharge).toFixed(2).split('.')[1]}</span>
-                    <span className="text-4xl 2xl:text-5xl font-black text-emerald-400/50 ml-1">%</span>
+                <div className="flex items-center gap-12">
+                  <div className="text-center">
+                    <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-2">Mức phụ thu</p>
+                    <div>
+                      <span className="text-7xl 2xl:text-8xl font-black text-emerald-400 leading-none">{Number(activeBulk.percentSurcharge).toFixed(0)}</span>
+                      <span className="text-3xl 2xl:text-4xl font-black text-emerald-400/70 ml-0.5 align-top">.{Number(activeBulk.percentSurcharge).toFixed(2).split('.')[1]}</span>
+                      <span className="text-3xl 2xl:text-4xl font-black text-emerald-400/50 ml-1">%</span>
+                    </div>
                   </div>
-                  <div className="border-t border-white/10 pt-4 text-center">
+                  <div className="w-px h-16 bg-white/10" />
+                  <div className="text-center">
                     <span className="text-white/30 text-sm font-bold">Khoảng giá DO: </span>
                     <span className="text-white/60 text-sm font-bold">{fmt(activeBulk.minPrice)} – {activeBulk.maxPrice >= 99999 ? 'Trở lên' : fmt(activeBulk.maxPrice)} VND</span>
                   </div>
-                </>
+                </div>
               ) : (
                 <p className="text-white/30 font-bold">Không có dữ liệu bậc phụ thu</p>
               )}
