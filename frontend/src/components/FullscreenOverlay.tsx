@@ -178,7 +178,9 @@ const FullscreenOverlay: React.FC<Props> = ({ onExit }) => {
                     <p className="text-white/30 text-sm font-bold uppercase tracking-widest mb-2">Mức phụ thu</p>
                     <div>
                       <span className="text-7xl 2xl:text-8xl font-black text-emerald-400 leading-none">{Number(activeBulk.percentSurcharge).toFixed(0)}</span>
-                      <span className="text-3xl 2xl:text-4xl font-black text-emerald-400/70 ml-0.5 align-top">.{Number(activeBulk.percentSurcharge).toFixed(2).split('.')[1]}</span>
+                      {Number(activeBulk.percentSurcharge) % 1 !== 0 && (
+                        <span className="text-3xl 2xl:text-4xl font-black text-emerald-400/70 ml-0.5 align-top">.{Number(activeBulk.percentSurcharge).toFixed(2).split('.')[1]}</span>
+                      )}
                       <span className="text-3xl 2xl:text-4xl font-black text-emerald-400/50 ml-1">%</span>
                     </div>
                   </div>
