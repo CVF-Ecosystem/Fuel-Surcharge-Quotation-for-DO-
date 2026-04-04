@@ -7,7 +7,12 @@ import bcrypt from "bcryptjs";
 // ─── In-memory stores ────────────────────────────────────────────────────────
 let store: Record<string, any[]> = {
   fuel_prices: [
-    { id: 1, date: '2026-03-26', effectiveAt: null, fuelType: 'Dầu DO 0,05S-II', priceV1: 35440, isPublished: true }
+    // Lịch sử giá thực tế — isPublished: false => hệ thống tự dùng giá mới nhất (4/4)
+    { id: 1, date: '2026-03-26', effectiveAt: '2026-03-26T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440, isPublished: false },
+    { id: 2, date: '2026-04-01', effectiveAt: '2026-04-01T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440, isPublished: false },
+    { id: 3, date: '2026-04-02', effectiveAt: '2026-04-02T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440, isPublished: false },
+    { id: 4, date: '2026-04-03', effectiveAt: '2026-04-03T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440, isPublished: false },
+    { id: 5, date: '2026-04-04', effectiveAt: '2026-04-04T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 44780, isPublished: false },
   ],
   tiers: [
     { id: 1, minPrice: 0,     maxPrice: 23000, surcharge20F: 0,      surcharge40F: 0,      surcharge20E: 0,      surcharge40E: 0      },
@@ -51,7 +56,7 @@ let store: Record<string, any[]> = {
   registration_items: [],
   audit_logs: [],
   app_config: [
-    { key: 'fallback', value: { price: 35440, date: '2026-03-26' } }
+    { key: 'fallback', value: { price: 44780, date: '2026-04-04' } }
   ],
   users: [],
 };
@@ -69,8 +74,33 @@ export async function queryOne<T = any>(_text: string, _params?: any[]): Promise
   return null;
 }
 
-export async function execute(_text: string, _params?: any[]): Promise<void> {
-  // no-op
+export async function execute(text: string, params?: any[]): Promise<void> {
+  // Handle specific SQL patterns needed by the app in memory mode
+  const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // Unpin all: UPDATE fuel_prices SET is_published = FALSE
+  if (normalized.includes('update fuel_prices') && normalized.includes('is_published') && normalized.includes('false')) {
+    store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: false }));
+    return;
+  }
+
+  // Pin specific: UPDATE fuel_prices SET is_published = TRUE WHERE id = $1
+  if (normalized.includes('update fuel_prices') && normalized.includes('is_published') && normalized.includes('true') && params?.[0] !== undefined) {
+    const id = Number(params[0]);
+    store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: p.id === id }));
+    return;
+  }
+
+  // Edit price value: UPDATE fuel_prices SET price_v1 = $1 WHERE id = $2
+  if (normalized.includes('update fuel_prices') && normalized.includes('price_v1') && params?.[0] !== undefined && params?.[1] !== undefined) {
+    const [priceV1, id] = params;
+    const idx = store.fuel_prices.findIndex(p => p.id === Number(id));
+    if (idx >= 0) {
+      store.fuel_prices[idx] = { ...store.fuel_prices[idx], priceV1: Number(priceV1) };
+    }
+    return;
+  }
+  // Other SQL → no-op (audit logs etc.)
 }
 
 export async function withTransaction<T>(fn: (client: any) => Promise<T>): Promise<T> {

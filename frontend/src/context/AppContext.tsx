@@ -201,9 +201,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     fetchData();
 
-    // Auto-refresh when switching between browser tabs
+    // Auto-refresh when switching back to this tab, but at most once every 5 minutes
+    let lastFetchTime = Date.now();
     const handleFocus = () => {
-      fetchData();
+      const now = Date.now();
+      if (now - lastFetchTime > 5 * 60 * 1000) {
+        lastFetchTime = now;
+        fetchData();
+      }
     };
     window.addEventListener("focus", handleFocus);
     return () => {

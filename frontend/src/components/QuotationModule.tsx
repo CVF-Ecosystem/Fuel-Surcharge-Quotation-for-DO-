@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useAppContext } from '../context/AppContext';
 import { numberToWords_VI, numberToWords_EN } from '../utils/numberToWords';
@@ -97,9 +97,15 @@ export default function QuotationModule() {
     exportFilename: 'DanhMucPhuongAn', sheetName: 'PhuongAn'
   });
 
+
   // ── Absorb pendingSurcharge from Calculator ───────────────────────────────
+  const lastProcessedSurchargeRef = useRef<typeof pendingSurcharge>(null);
   useEffect(() => {
     if (!pendingSurcharge) return;
+    // Guard against React StrictMode double-invoke (same object reference = already processed)
+    if (pendingSurcharge === lastProcessedSurchargeRef.current) return;
+    lastProcessedSurchargeRef.current = pendingSurcharge;
+
     const surcharge = pendingSurcharge;
     setPendingSurcharge(null);
     const surchargeRow: RowItem = {
@@ -118,6 +124,7 @@ export default function QuotationModule() {
       'success'
     );
   }, [pendingSurcharge]);
+
 
   // ── Absorb pendingCustomer (from CustomerList) ────────────────────────────
   useEffect(() => {
