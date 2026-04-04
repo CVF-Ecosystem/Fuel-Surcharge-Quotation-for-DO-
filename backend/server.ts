@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { initDB } from "./db.js";
-import { ensureSeeded } from "./seed.js";
 import { PORT } from "./config.js";
 import authRouter from "./routes/auth.js";
 import crudRouter from "./routes/crud.js";
@@ -51,16 +50,21 @@ function startDailyScheduler() {
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 async function bootstrap() {
-  // 1. Init PostgreSQL schema
+  // 1. Init database (PostgreSQL hoặc In-Memory tùy công tắc trong db.ts)
   await initDB();
 
-  // 2. Seed default data
-  await ensureSeeded();
+  // 2. Seed default data (chỉ chạy khi dùng PostgreSQL — memory mode đã seed sẵn)
+  try {
+    const { ensureSeeded } = await import("./seed.js");
+    await ensureSeeded();
+  } catch (e: any) {
+    console.log("[DB] ⚙️ Bỏ qua seed (đang dùng in-memory mode):", e.message?.slice(0, 80));
+  }
 
   // 3. Start daily price sync scheduler
   startDailyScheduler();
 
-  // 3. Dev or production mode
+  // 4. Dev or production mode
   if (process.env.NODE_ENV !== "production") {
     const viteModule = await import("vite");
     const vite = await viteModule.createServer({

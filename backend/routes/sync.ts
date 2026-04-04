@@ -10,8 +10,12 @@ const router = Router();
 // ─── Health ───────────────────────────────────────────────────────────────────
 router.get("/health", async (_req, res) => {
   try {
-    await pool.query("SELECT 1");
-    res.json({ status: "UP", storage: "POSTGRESQL", timestamp: new Date().toISOString() });
+    if (pool) {
+      await pool.query("SELECT 1");
+      res.json({ status: "UP", storage: "POSTGRESQL", timestamp: new Date().toISOString() });
+    } else {
+      res.json({ status: "UP", storage: "MEMORY", timestamp: new Date().toISOString() });
+    }
   } catch (e: any) {
     res.status(500).json({ status: "DOWN", error: e.message });
   }

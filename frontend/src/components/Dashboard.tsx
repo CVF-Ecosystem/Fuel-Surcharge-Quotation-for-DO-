@@ -215,7 +215,7 @@ const Dashboard: React.FC = () => {
                       <td className={S.cellRange(active)}>
                         {formatPrice(bt.minPrice)} – {bt.maxPrice >= 99999 ? 'Trở lên' : formatPrice(bt.maxPrice)}
                       </td>
-                      <td className={S.cellPercent(active)}>{Number(bt.percentSurcharge).toFixed(2)}%</td>
+                      <td className={S.cellPercent(active)}>{Number(bt.percentSurcharge)}%</td>
                     </tr>
                   );
                 })}

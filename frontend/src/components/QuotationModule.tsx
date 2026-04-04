@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useAppContext } from '../context/AppContext';
 import { numberToWords_VI, numberToWords_EN } from '../utils/numberToWords';
@@ -97,9 +97,15 @@ export default function QuotationModule() {
     exportFilename: 'DanhMucPhuongAn', sheetName: 'PhuongAn'
   });
 
+
   // ── Absorb pendingSurcharge from Calculator ───────────────────────────────
+  const lastProcessedSurchargeRef = useRef<typeof pendingSurcharge>(null);
   useEffect(() => {
     if (!pendingSurcharge) return;
+    // Guard against React StrictMode double-invoke (same object reference = already processed)
+    if (pendingSurcharge === lastProcessedSurchargeRef.current) return;
+    lastProcessedSurchargeRef.current = pendingSurcharge;
+
     const surcharge = pendingSurcharge;
     setPendingSurcharge(null);
     const surchargeRow: RowItem = {
@@ -118,6 +124,7 @@ export default function QuotationModule() {
       'success'
     );
   }, [pendingSurcharge]);
+
 
   // ── Absorb pendingCustomer (from CustomerList) ────────────────────────────
   useEffect(() => {
@@ -187,13 +194,7 @@ export default function QuotationModule() {
     } catch { showToast('Lỗi khi lưu! Vui lòng thử lại.', 'error'); }
   };
 
-  const handleExcel = () => {
-    const data = processed.rows.filter(r => r.name).map((r, i) => ({ STT: i + 1, 'Phương án': r.name, DVT: r.unit, 'Số lượng': r.quantity, 'Đơn giá': r.price, 'Thành tiền': r.lineTotal }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'BaoGia');
-    XLSX.writeFile(wb, `BaoGia_${customerName || 'khach_hang'}.xlsx`);
-  };
+
 
   const handleDeleteQuote = async (id: string) => {
     if (!confirm(t.confirmDeleteQuote)) return;
@@ -252,7 +253,6 @@ export default function QuotationModule() {
             t={t} onNew={handleNew} onSave={handleSave}
             onGeneratePreview={generatePreview} isRendering={isRendering}
             onExportPDF={() => exportPDF(`Bao_gia_${customerName || 'khach_hang'}`)}
-            onExportExcel={handleExcel}
             previewImg={previewImg}
             canEdit={canEdit}
           />
