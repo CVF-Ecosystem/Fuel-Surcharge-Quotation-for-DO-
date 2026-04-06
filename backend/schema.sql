@@ -185,5 +185,5 @@ CREATE TABLE IF NOT EXISTS app_config (
 
 -- Default fallback config
 INSERT INTO app_config (key, value)
-VALUES ('fallback', '{"price": 35440, "date": "2026-03-26"}')
+VALUES ('fallback', '{"price": 44780, "date": "2026-04-04"}')
 ON CONFLICT (key) DO NOTHING;

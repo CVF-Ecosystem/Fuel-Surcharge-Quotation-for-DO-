@@ -5,7 +5,7 @@
 # ============================================================
 set -e
 
-APP_DIR="/var/www/QD209"
+APP_DIR="/var/www/ttport/QD209"
 PM2_APP_NAME="qd209"
 NGINX_TANTHUAN="/etc/nginx/sites-available/tanthuan"
 NGINX_SNIPPET="/etc/nginx/snippets/qd209.conf"
@@ -38,7 +38,7 @@ cp deploy/nginx.conf ${NGINX_SNIPPET}
 
 # Add include directive to active tanthuan config if not already present
 # Check both sites-available and sites-enabled (some setups use files directly)
-for NGINX_CFG in /etc/nginx/sites-enabled/tanthuan /etc/nginx/sites-available/tanthuan; do
+for NGINX_CFG in /etc/nginx/sites-enabled/ttport.vn /etc/nginx/sites-available/ttport.vn; do
     if [ -f "${NGINX_CFG}" ] && ! grep -q "qd209.conf" "${NGINX_CFG}" 2>/dev/null; then
         sed -i '/root \/var\/www\/tanthuan-home;/a\    \n    # QD209 LogiPro Application\n    include /etc/nginx/snippets/qd209.conf;' "${NGINX_CFG}"
         echo "Added QD209 include to ${NGINX_CFG}"

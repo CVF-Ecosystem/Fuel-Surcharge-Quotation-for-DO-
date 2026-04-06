@@ -26,7 +26,11 @@ export async function seedData(): Promise<void> {
   const [{ count: priceCount }] = await query<{ count: string }>("SELECT COUNT(*)::int AS count FROM fuel_prices");
   if (Number(priceCount) === 0) {
     await replacePrices([
-      { date: '2026-03-26', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440 }
+      { date: '2026-03-26', effectiveAt: '2026-03-26T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440 },
+      { date: '2026-04-01', effectiveAt: '2026-04-01T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440 },
+      { date: '2026-04-02', effectiveAt: '2026-04-02T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 35440 },
+      { date: '2026-04-03', effectiveAt: '2026-04-03T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 40820 },
+      { date: '2026-04-04', effectiveAt: '2026-04-04T08:00:00+07:00', fuelType: 'Dầu DO 0,05S-II', priceV1: 44780 },
     ]);
   }
 

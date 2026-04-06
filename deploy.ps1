@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $SSH_KEY = "$env:USERPROFILE\.ssh\qd209_deploy"
-$SERVER = "root@103.7.43.98"
+$SERVER = "-p 24700 root@103.72.98.102"
 
 function Write-Step($step, $msg) {
     Write-Host "`n[$step] $msg" -ForegroundColor Cyan
@@ -43,13 +43,13 @@ if (-not $status) {
 
 # --- 3. Pull code on server ---
 Write-Step "3/5" "Pulling latest code on server..."
-ssh -i $SSH_KEY $SERVER "cd /var/www/QD209 && git fetch origin main && git reset --hard origin/main"
+ssh -i $SSH_KEY $SERVER "cd /var/www/ttport/QD209 && git fetch origin main && git reset --hard origin/main"
 if ($LASTEXITCODE -ne 0) { Write-Host "PULL FAILED" -ForegroundColor Red; exit 1 }
 Write-Host "Pull OK" -ForegroundColor Green
 
 # --- 4. Upload built frontend ---
 Write-Step "4/5" "Uploading frontend build to server..."
-scp -i $SSH_KEY -r "frontend/dist" "${SERVER}:/var/www/QD209/frontend/"
+scp -i $SSH_KEY -P 24700 -r "frontend/dist" "root@103.72.98.102:/var/www/ttport/QD209/frontend/"
 if ($LASTEXITCODE -ne 0) { Write-Host "UPLOAD FAILED" -ForegroundColor Red; exit 1 }
 Write-Host "Upload OK" -ForegroundColor Green
 
@@ -57,7 +57,7 @@ Write-Host "Upload OK" -ForegroundColor Green
 Write-Step "5/5" "Installing deps and restarting app on server..."
 $remoteScript = @'
 set -e
-cd /var/www/QD209
+cd /var/www/ttport/QD209
 npm ci --omit=dev
 npm ls tsx 2>/dev/null || npm install tsx
 

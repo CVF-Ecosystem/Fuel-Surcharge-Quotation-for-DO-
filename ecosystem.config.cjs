@@ -4,7 +4,7 @@ module.exports = {
     script: 'backend/server.ts',
     interpreter: 'node',
     interpreter_args: '--import tsx',
-    cwd: '/var/www/QD209',
+    cwd: '/var/www/ttport/QD209',
     exec_mode: 'fork',
     env: {
       NODE_ENV: 'production',

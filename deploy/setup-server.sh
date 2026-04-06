@@ -5,7 +5,7 @@
 # ============================================================
 set -e
 
-APP_DIR="/var/www/QD209"
+APP_DIR="/var/www/ttport/QD209"
 APP_USER="root"
 NODE_VERSION="20"
 
