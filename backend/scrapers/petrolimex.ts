@@ -338,27 +338,29 @@ export async function syncAndSave(force = false): Promise<SyncResult & { saved: 
     return { ...result, saved: false, message: "Không có dữ liệu giá để lưu." };
   }
 
-  const { effectiveDate, fuelType, priceV1 } = result.data;
+  const today = getVietnamTodayIsoDate();
+  const { fuelType, priceV1, effectiveDate } = result.data;
   const effectiveAt = result.data.effectiveAt || null;
 
-  // UPSERT: insert or update if date already exists
+  // Luôn lưu vào ngày hôm nay — KHÔNG lưu vào effectiveDate (ngày Petro điều chỉnh)
+  // INSERT nếu hôm nay chưa có, UPDATE nếu hôm nay đã có (cho phép cập nhật trong ngày)
   const upsertResult = await query(
     `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at) VALUES ($1, $2, $3, $4)
      ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1, effective_at = EXCLUDED.effective_at
      RETURNING (xmax = 0) AS inserted`,
-    [effectiveDate, fuelType, priceV1, effectiveAt],
+    [today, fuelType, priceV1, effectiveAt],
   );
   const wasInserted = upsertResult[0]?.inserted ?? true;
 
   const action = wasInserted ? "Thêm mới" : "Cập nhật";
-  await logAudit("SYNC_PRICE", `${action} giá: ${priceV1.toLocaleString()}đ ngày ${effectiveDate} (${result.data.source})`);
+  await logAudit("SYNC_PRICE", `${action} giá: ${priceV1.toLocaleString()}đ ngày ${today} (hiệu lực từ ${effectiveDate}) (${result.data.source})`);
 
   return {
     ...result,
     saved: true,
     message: wasInserted
-      ? `✅ Đã lưu giá ${priceV1.toLocaleString()}đ cho ngày ${effectiveDate}.`
-      : `✅ Đã cập nhật giá ${priceV1.toLocaleString()}đ cho ngày ${effectiveDate}.`,
+      ? `✅ Đã lưu giá ${priceV1.toLocaleString()}đ cho ngày ${today} (hiệu lực từ ${effectiveDate}).`
+      : `✅ Đã cập nhật giá ${priceV1.toLocaleString()}đ cho ngày ${today} (hiệu lực từ ${effectiveDate}).`,
   };
 }
 
@@ -373,28 +375,8 @@ export async function cronSync(): Promise<void> {
       console.log(`[Cron] ℹ️ ${result.message}`);
     }
 
-    // Always ensure today has a price row
-    const today = getVietnamTodayIsoDate();
-    const todayRow = await query(
-      `SELECT id FROM fuel_prices WHERE date = $1`, [today]
-    );
-
-    if (todayRow.length === 0) {
-      const latest = await query(
-        `SELECT fuel_type, price_v1, effective_at FROM fuel_prices ORDER BY date DESC LIMIT 1`
-      );
-      if (latest.length > 0) {
-        await execute(
-          `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (date) DO NOTHING`,
-          [today, latest[0].fuel_type, latest[0].price_v1, latest[0].effective_at]
-        );
-        console.log(`[Cron] 📋 Sao chép giá ${latest[0].price_v1}đ cho ngày ${today} (giá không đổi)`);
-        await logAudit("CRON_COPY_PRICE", `Sao chép giá ${latest[0].price_v1}đ cho ngày ${today} (giá không đổi)`);
-      }
-    }
-
     // Always publish today's price to homepage
+    const today = getVietnamTodayIsoDate();
     await execute(`UPDATE fuel_prices SET is_published = FALSE`);
     await execute(`UPDATE fuel_prices SET is_published = TRUE WHERE date = $1`, [today]);
     console.log(`[Cron] 📌 Đã ghim giá ngày ${today} lên Trang Chủ`);
