@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AlertCircle, RefreshCw, Lock, X, LogOut, Maximize, Minimize } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
@@ -61,6 +61,7 @@ export default function App() {
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const loginUsernameRef = useRef<HTMLInputElement>(null);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,6 +210,7 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
+              onAnimationComplete={() => loginUsernameRef.current?.focus()}
               className={S.loginPanel}
             >
               <div className={S.loginHeader}>
@@ -226,7 +228,7 @@ export default function App() {
                 )}
                 <div className={S.loginFieldGroup}>
                   <label className={S.loginLabel}>Tên đăng nhập</label>
-                  <input type="text" value={loginUsername} onChange={e => setLoginUsername(e.target.value)} className={S.loginInput} placeholder="admin" />
+                  <input ref={loginUsernameRef} type="text" value={loginUsername} onChange={e => setLoginUsername(e.target.value)} className={S.loginInput} placeholder="admin" autoFocus />
                 </div>
                 <div className={S.loginFieldGroup}>
                   <label className={S.loginLabel}>Mật khẩu</label>

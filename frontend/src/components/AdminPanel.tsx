@@ -30,6 +30,8 @@ import { logiStorage } from '../lib/storage';
 import { API_BASE } from '../lib/apiBase';
 import * as S from '../styles/AdminPanel.styles';
 
+const APP_VERSION = __APP_VERSION__;
+
 const AdminPanel: React.FC = () => {
   const { prices, setPrices, tiers, setTiers, bulkTiers, setBulkTiers, error, setError, fetchData } = useAppContext();
   
@@ -458,7 +460,10 @@ const AdminPanel: React.FC = () => {
   return (
     <div className={S.wrapper}>
       <div className={S.headerCol}>
-        <h1 className={S.title}>CÀI ĐẶT</h1>
+        <div className="flex items-center gap-3">
+          <h1 className={S.title}>CÀI ĐẶT</h1>
+          <span className="text-xs font-mono bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">v{APP_VERSION}</span>
+        </div>
         <p className={S.subtitle}>Quản lý giá nhiên liệu và phụ thu</p>
       </div>
 

@@ -26,7 +26,7 @@ app.use("/api/public", publicRouter);
 app.use("/api",        crudRouter);
 app.use("/api",        syncRouter);
 
-// ─── Daily 7:00 AM (Vietnam time) Scheduler ─────────────────────────────────
+// ─── Daily 6:00 AM (Vietnam time) Scheduler ─────────────────────────────────
 function startDailyScheduler() {
   const SYNC_HOUR = 6;   // 6:00 sáng giờ Việt Nam
   const SYNC_MINUTE = 0;
@@ -35,7 +35,7 @@ function startDailyScheduler() {
     const now = new Date();
     const vn = getVietnamDateTimeParts(now);
 
-    // Build target 07:00:00 today in UTC+7
+    // Build target 06:00:00 today in UTC+7
     const pad = (n: number) => String(n).padStart(2, "0");
     let target = new Date(
       `${vn.year}-${pad(vn.month)}-${pad(vn.day)}T${pad(SYNC_HOUR)}:${pad(SYNC_MINUTE)}:00+07:00`
@@ -51,12 +51,37 @@ function startDailyScheduler() {
     console.log(`[Scheduler] ⏰ Đồng bộ giá tiếp theo lúc ${nextStr} (sau ${Math.round(delay / 60000)} phút)`);
 
     setTimeout(async () => {
-      await cronSync();
+      try {
+        await cronSync();
+      } catch (e: any) {
+        console.error(`[Scheduler] ❌ Lỗi không mong đợi khi chạy cronSync: ${e.message}`);
+      }
       scheduleNext();
     }, delay);
   }
 
   scheduleNext();
+
+  // ── Sync ngay khi khởi động nếu hôm nay chưa có giá ──────────────────────
+  setTimeout(async () => {
+    try {
+      const { getVietnamTodayIsoDate } = await import("./utils/vietnamTime.js");
+      const { query: dbQuery } = await import("./db.js");
+      const today = getVietnamTodayIsoDate();
+      const rows = await dbQuery(
+        `SELECT id FROM fuel_prices WHERE date = $1 LIMIT 1`,
+        [today],
+      );
+      if (rows.length === 0) {
+        console.log(`[Scheduler] 🚀 Khởi động: Chưa có giá ngày ${today} → Chạy sync ngay...`);
+        await cronSync();
+      } else {
+        console.log(`[Scheduler] ✅ Khởi động: Đã có giá ngày ${today}, bỏ qua sync.`);
+      }
+    } catch (e: any) {
+      console.error(`[Scheduler] ❌ Lỗi sync khi khởi động: ${e.message}`);
+    }
+  }, 5_000); // Đợi 5 giây cho server ổn định
 }
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────

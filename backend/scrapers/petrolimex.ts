@@ -382,6 +382,8 @@ export async function cronSync(): Promise<void> {
     console.log(`[Cron] 📌 Đã ghim giá ngày ${today} lên Trang Chủ`);
   } catch (e: any) {
     console.error(`[Cron] ❌ Lỗi đồng bộ: ${e.message}`);
-    await logAudit("CRON_SYNC_ERROR", `Lỗi cào tự động: ${e.message}`);
+    try {
+      await logAudit("CRON_SYNC_ERROR", `Lỗi cào tự động: ${e.message}`);
+    } catch (_) { /* Không để logAudit lỗi làm chết scheduler */ }
   }
 }

@@ -17,6 +17,20 @@ function Write-Step($step, $msg) {
     Write-Host ("-" * 50)
 }
 
+# --- 0. Auto-increment version (patch: 1.1.001 → 1.1.002) ---
+Write-Step "0" "Incrementing version..."
+$pkgPath = Join-Path $PSScriptRoot "package.json"
+$raw = Get-Content $pkgPath -Raw -Encoding UTF8
+if ($raw -match '"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)"') {
+    $major = $Matches[1]; $minor = $Matches[2]; $patch = [int]$Matches[3] + 1
+    $newVer = "$major.$minor.$($patch.ToString('D3'))"
+    $raw = $raw -replace '"version"\s*:\s*"[^"]+"', "`"version`": `"$newVer`""
+    [System.IO.File]::WriteAllText($pkgPath, $raw)
+    Write-Host "Version: $newVer" -ForegroundColor Green
+} else {
+    Write-Host "WARNING: Could not find version in package.json" -ForegroundColor Yellow
+}
+
 # --- 1. Build frontend ---
 Write-Step "1/5" "Building frontend..."
 npm run build
