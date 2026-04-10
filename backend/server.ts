@@ -28,15 +28,14 @@ app.use("/api",        syncRouter);
 
 // ─── Daily 6:00 AM (Vietnam time) Scheduler ─────────────────────────────────
 function startDailyScheduler() {
-  const SYNC_HOUR = 6;   // 6:00 sáng giờ Việt Nam
+  const SYNC_HOUR = 6;
   const SYNC_MINUTE = 0;
 
   function scheduleNext() {
     const now = new Date();
     const vn = getVietnamDateTimeParts(now);
-
-    // Build target 06:00:00 today in UTC+7
     const pad = (n: number) => String(n).padStart(2, "0");
+
     let target = new Date(
       `${vn.year}-${pad(vn.month)}-${pad(vn.day)}T${pad(SYNC_HOUR)}:${pad(SYNC_MINUTE)}:00+07:00`
     );
@@ -98,6 +97,8 @@ async function bootstrap() {
   }
 
   // 3. Start daily price sync scheduler
+  const vnNow = getVietnamDateTimeParts();
+  console.log(`[Boot] TZ=${process.env.TZ || 'unset'} | UTC=${new Date().toISOString()} | VN=${vnNow.year}-${String(vnNow.month).padStart(2,'0')}-${String(vnNow.day).padStart(2,'0')} ${String(vnNow.hour).padStart(2,'0')}:${String(vnNow.minute).padStart(2,'0')}`);
   startDailyScheduler();
 
   // 4. Dev or production mode

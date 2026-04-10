@@ -8,6 +8,7 @@ module.exports = {
     exec_mode: 'fork',
     env: {
       NODE_ENV: 'production',
+      TZ: 'Asia/Ho_Chi_Minh',
       PORT: 3000,
       DATABASE_URL: 'postgresql://qd209:qd209_secret_2026@localhost:5432/logipro'
     },

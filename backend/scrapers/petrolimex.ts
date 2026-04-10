@@ -339,6 +339,8 @@ export async function syncAndSave(force = false): Promise<SyncResult & { saved: 
   }
 
   const today = getVietnamTodayIsoDate();
+  const utcNow = new Date().toISOString();
+  console.log(`[syncAndSave] UTC=${utcNow} | VN today=${today} | TZ=${process.env.TZ || 'unset'} | price=${result.data.priceV1}`);
   const { fuelType, priceV1, effectiveDate } = result.data;
   const effectiveAt = result.data.effectiveAt || null;
 
