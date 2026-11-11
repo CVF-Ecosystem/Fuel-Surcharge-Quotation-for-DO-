@@ -1,41 +1,35 @@
-# Hướng dẫn chuyển đổi chế độ Database (In-Memory ↔ PostgreSQL)
+# Chọn chế độ Database (PostgreSQL ↔ In-Memory)
 
-Trong quá trình phát triển (đặc biệt là test local hoặc test giao diện nhanh), project cung cấp một chế độ **In-Memory Storage**. Chế độ này KHÔNG cần cài đặt PostgreSQL, giúp chạy ứng dụng lên ngay lập tức với dữ liệu giả lập có sẵn.
+Từ phiên bản này, chế độ lưu trữ được chọn bằng **biến môi trường**, không còn sửa tay
+file `backend/db.ts` (lần sửa tay đó từng vô tình đưa production về RAM).
 
-## Các bước chuyển đổi
+| Biến môi trường | Kết quả |
+|---|---|
+| `DATABASE_URL` có giá trị | **PostgreSQL** |
+| `DATABASE_URL` trống | **In-Memory** — dữ liệu mất khi restart, chỉ dùng dev/demo |
+| `USE_MEMORY_DB=true` | Ép In-Memory dù đã có `DATABASE_URL` |
 
-Bác chỉ cần thao tác **DUY NHẤT** tại file `backend/db.ts`.
+Khi khởi động, server log một dòng cho biết đang dùng chế độ nào:
 
-### 1. Muốn chạy In-Memory (Test local nhanh, không cần DB thật)
-Mở file `backend/db.ts` và thiết lập phần export ở cuối file như sau:
-```typescript
-export {
-  // ... (danh sách các hàm export)
-  pool,
-} from "./db-memory.js"; // <--- BẬT DÒNG NÀY (Bỏ comment)
-//} from "./db-postgres.js";  // <--- TẮT DÒNG NÀY (Thêm comment)
+```
+[DB] Chế độ lưu trữ: PostgreSQL
+[DB] Chế độ lưu trữ: IN-MEMORY (dữ liệu sẽ mất khi restart)
 ```
 
-Sau đó chạy lại server:
+và `GET /api/health` trả `"storage": "POSTGRESQL"` hoặc `"MEMORY"`.
+
+## Production (PM2)
+`ecosystem.config.cjs` đã đặt `DATABASE_URL`, nên production tự dùng PostgreSQL.
+
+## Chạy local không cần Postgres
 ```bash
-npm run dev
-```
-*Lưu ý: Bạn sẽ thấy dòng log `[DB-MEMORY] ✅ In-memory database initialized`.*
-
----
-
-### 2. Muốn chạy PostgreSQL (Môi trường Staging / Production)
-Mở file `backend/db.ts` và đảo ngược lại:
-```typescript
-export {
-  // ... (danh sách các hàm export)
-  pool,
-//} from "./db-memory.js"; // <--- TẮT DÒNG NÀY (Thêm comment)
-} from "./db-postgres.js";  // <--- BẬT DÒNG NÀY (Bỏ comment)
+npm run dev          # không đặt DATABASE_URL -> In-Memory, có sẵn dữ liệu mẫu
 ```
 
-Sau đó chạy lại server:
+## Chạy local với Postgres
 ```bash
-npm run dev
+DATABASE_URL=postgresql://user:pass@localhost:5432/logipro npm run dev
 ```
-*Lưu ý: Bạn cần cấu hình chuỗi kết nối PostgreSQL (ví dụ `DATABASE_URL`) hoặc để mặc định trong code (user `postgres`, password `postgres`).*
+
+> Hai chế độ có cùng hợp đồng hàm (xem `backend/db-postgres.ts` và `backend/db-memory.ts`).
+> Khi thêm thao tác dữ liệu mới, hãy thêm vào **cả hai** file; route không viết SQL thô.

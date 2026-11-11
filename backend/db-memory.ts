@@ -76,33 +76,8 @@ export async function queryOne<T = any>(_text: string, _params?: any[]): Promise
   return null;
 }
 
-export async function execute(text: string, params?: any[]): Promise<void> {
-  // Handle specific SQL patterns needed by the app in memory mode
-  const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase();
-
-  // Unpin all: UPDATE fuel_prices SET is_published = FALSE
-  if (normalized.includes('update fuel_prices') && normalized.includes('is_published') && normalized.includes('false')) {
-    store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: false }));
-    return;
-  }
-
-  // Pin specific: UPDATE fuel_prices SET is_published = TRUE WHERE id = $1
-  if (normalized.includes('update fuel_prices') && normalized.includes('is_published') && normalized.includes('true') && params?.[0] !== undefined) {
-    const id = Number(params[0]);
-    store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: p.id === id }));
-    return;
-  }
-
-  // Edit price value: UPDATE fuel_prices SET price_v1 = $1 WHERE id = $2
-  if (normalized.includes('update fuel_prices') && normalized.includes('price_v1') && params?.[0] !== undefined && params?.[1] !== undefined) {
-    const [priceV1, id] = params;
-    const idx = store.fuel_prices.findIndex(p => p.id === Number(id));
-    if (idx >= 0) {
-      store.fuel_prices[idx] = { ...store.fuel_prices[idx], priceV1: Number(priceV1) };
-    }
-    return;
-  }
-  // Other SQL → no-op (audit logs etc.)
+export async function execute(_text: string, _params?: any[]): Promise<void> {
+  // Memory mode không chạy SQL. Mọi thao tác dữ liệu đi qua các hàm có tên bên dưới.
 }
 
 export async function withTransaction<T>(fn: (client: any) => Promise<T>): Promise<T> {
@@ -123,6 +98,52 @@ export async function replacePrices(rows: any[], _client?: any) {
     fuelType: r.fuelType || 'Dầu DO 0,05S-II',
     priceV1: r.priceV1, isPublished: r.isPublished ?? false
   }));
+}
+
+// ─── Fuel price: thao tác theo từng bản ghi (cùng hợp đồng với db-postgres) ──
+export async function upsertPrice(
+  date: string,
+  fuelType: string,
+  priceV1: number,
+  effectiveAt?: string | null,
+): Promise<{ id: number | string; inserted: boolean }> {
+  // 1 ngày = 1 giá (khớp UNIQUE(date) của PostgreSQL)
+  const idx = store.fuel_prices.findIndex(p => p.date === date);
+  if (idx >= 0) {
+    const cur = store.fuel_prices[idx];
+    store.fuel_prices[idx] = { ...cur, fuelType, priceV1, effectiveAt: effectiveAt ?? cur.effectiveAt };
+    return { id: cur.id, inserted: false };
+  }
+  const id = nextId();
+  store.fuel_prices.push({ id, date, effectiveAt: effectiveAt ?? `${date}T08:00:00+07:00`, fuelType, priceV1, isPublished: false });
+  return { id, inserted: true };
+}
+
+export async function setPriceValue(id: number, priceV1: number): Promise<boolean> {
+  const idx = store.fuel_prices.findIndex(p => Number(p.id) === id);
+  if (idx < 0) return false;
+  store.fuel_prices[idx] = { ...store.fuel_prices[idx], priceV1 };
+  return true;
+}
+
+export async function publishPriceById(id: number): Promise<boolean> {
+  if (!store.fuel_prices.some(p => Number(p.id) === id)) return false;
+  store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: Number(p.id) === id }));
+  return true;
+}
+
+export async function publishPriceByDate(date: string): Promise<boolean> {
+  if (!store.fuel_prices.some(p => p.date === date)) return false;
+  store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: p.date === date }));
+  return true;
+}
+
+export async function clearPublishedPrice(): Promise<void> {
+  store.fuel_prices = store.fuel_prices.map(p => ({ ...p, isPublished: false }));
+}
+
+export async function hasPriceForDate(date: string): Promise<boolean> {
+  return store.fuel_prices.some(p => p.date === date);
 }
 
 // ─── Tiers ───────────────────────────────────────────────────────────────────

@@ -4,8 +4,12 @@ import { getFallbackConfig, saveFallbackConfig, logAudit } from "../config.js";
 import { FallbackSchema, validateBody } from "../schemas.js";
 import { internalSyncLogic, syncAndSave, clearCache, cronSync } from "../scrapers/petrolimex.js";
 import { verifyToken } from "./auth.js";
+import { extractBearerToken } from "../utils/sessions.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
+
+const isAuthed = (authorization: string | undefined) => Boolean(verifyToken(extractBearerToken(authorization)));
 
 // ─── Health ───────────────────────────────────────────────────────────────────
 router.get("/health", async (_req, res) => {
@@ -22,14 +26,13 @@ router.get("/health", async (_req, res) => {
 });
 
 // ─── Fallback config ──────────────────────────────────────────────────────────
-router.get("/fallback", async (_req, res) => {
+router.get("/fallback", asyncHandler(async (_req, res) => {
   const cfg = await getFallbackConfig();
   res.json({ success: true, data: cfg });
-});
+}));
 
-router.post("/fallback", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
+router.post("/fallback", asyncHandler(async (req, res) => {
+  if (!isAuthed(req.headers.authorization)) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
   const body = validateBody(FallbackSchema, req.body, res);
@@ -42,33 +45,29 @@ router.post("/fallback", async (req, res) => {
   } else {
     res.status(500).json({ success: false, message: "Lỗi ghi dữ liệu." });
   }
-});
+}));
 
 // ─── Petrolimex scraper (read-only, does not save) ────────────────────────────
-router.get("/petrolimex-sync", async (req, res) => {
-  const force = req.query.force === "true";
+// Ai cũng đọc được kết quả đã cache (6h). Bỏ qua cache (force=true) buộc server
+// gọi ra Petrolimex nên chỉ cho người đã đăng nhập, tránh bị lợi dụng spam.
+router.get("/petrolimex-sync", asyncHandler(async (req, res) => {
+  const wantsForce = req.query.force === "true";
+  const force = wantsForce && isAuthed(req.headers.authorization);
   const result = await internalSyncLogic(force);
   res.json(result);
-});
+}));
 
 // ─── Petrolimex sync + save to database ───────────────────────────────────────
-router.post("/petrolimex-sync", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
+router.post("/petrolimex-sync", asyncHandler(async (req, res) => {
+  if (!isAuthed(req.headers.authorization)) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
-
-  try {
-    const result = await syncAndSave(true);
-    res.json(result);
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
+  const result = await syncAndSave(true);
+  res.json(result);
+}));
 
 router.post("/petrolimex-sync/clear-cache", (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
+  if (!isAuthed(req.headers.authorization)) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
   clearCache();
@@ -77,7 +76,7 @@ router.post("/petrolimex-sync/clear-cache", (req, res) => {
 });
 
 // ─── Cron sync (external trigger) ─────────────────────────────────────────────
-router.get("/cron/sync", async (req, res) => {
+router.get("/cron/sync", asyncHandler(async (req, res) => {
   const CRON_SECRET = process.env.CRON_SECRET || "logipro_cron_2026";
   if (req.headers.authorization !== `Bearer ${CRON_SECRET}`) {
     console.warn("[Cron] ❌ Truy cập trái phép vào endpoint Cron");
@@ -92,7 +91,7 @@ router.get("/cron/sync", async (req, res) => {
     await logAudit("CRON_SYNC_ERROR", `Lỗi cào tự động: ${e.message}`);
     res.status(500).json({ success: false, message: e.message });
   }
-});
+}));
 
 export { cronSync };
 export default router;

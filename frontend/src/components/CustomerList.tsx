@@ -36,19 +36,27 @@ const CustomerList: React.FC<CustomerListProps> = ({ onCustomerToQuote }) => {
     setShowForm(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  // Các hàm của logiStorage là async: phải await, nếu không setCustomers nhận Promise và trang trắng.
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.taxCode) return;
     const newCustomer: Customer = { id: editingCustomer ? editingCustomer.id : Date.now().toString(), ...formData };
-    logiStorage.saveCustomer(newCustomer);
-    setCustomers(logiStorage.getCustomers());
-    setShowForm(false);
+    try {
+      await logiStorage.saveCustomer(newCustomer);
+      setCustomers(await logiStorage.getCustomers());
+      setShowForm(false);
+    } catch (err: any) {
+      window.alert(`Không lưu được khách hàng: ${err?.message || 'lỗi không xác định'}`);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa khách hàng này?")) {
-      logiStorage.deleteCustomer(id);
-      setCustomers(logiStorage.getCustomers());
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa khách hàng này?")) return;
+    try {
+      await logiStorage.deleteCustomer(id);
+      setCustomers(await logiStorage.getCustomers());
+    } catch (err: any) {
+      window.alert(`Không xóa được khách hàng: ${err?.message || 'lỗi không xác định'}`);
     }
   };
 

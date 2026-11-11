@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { VAT_MULTIPLIER } from '../lib/constants';
 import {
   QrCode,
   ClipboardCheck,
@@ -1030,7 +1031,7 @@ export default function ReconciliationModule() {
                                 </span>
                               </td>
                               <td className="px-4 py-3 border-b border-slate-100 text-xs text-right font-black text-indigo-700">
-                                {row.delta === null ? '-' : Math.round(row.delta * 1.08).toLocaleString('vi-VN')}
+                                {row.delta === null ? '-' : Math.round(row.delta * VAT_MULTIPLIER).toLocaleString('vi-VN')}
                               </td>
                               <td className="px-4 py-3 border-b border-slate-100 text-center">
                                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${statusClasses[row.status]}`}>
@@ -1407,7 +1408,7 @@ export default function ReconciliationModule() {
 
             // Total surcharge impact
             const totalSurchargeDelta = comparisonResult.duplicateRows.reduce((sum, r) => sum + (r.surchargeDelta ?? 0), 0);
-            const totalDeltaVat = Math.round(totalSurchargeDelta * 1.08);
+            const totalDeltaVat = Math.round(totalSurchargeDelta * VAT_MULTIPLIER);
 
             return (
               <>
@@ -1564,7 +1565,7 @@ export default function ReconciliationModule() {
               }));
 
               const totalDelta = processedOrders.reduce((sum, r) => sum + (r.delta ?? 0), 0);
-              const totalDeltaVat = Math.round(totalDelta * 1.08);
+              const totalDeltaVat = Math.round(totalDelta * VAT_MULTIPLIER);
 
               // Date-group bar chart
               const dateGroupData = uniqueBookingDates.map(d => {

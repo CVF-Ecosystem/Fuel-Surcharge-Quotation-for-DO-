@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { useAppContext } from '../context/AppContext';
 import { logiStorage } from '../lib/storage';
 import { FuelPrice } from '../types';
+import { VAT_RATE, VAT_MULTIPLIER } from '../lib/constants';
 import * as S from '../styles/SurchargeCalculator.styles';
 import { motionFadeUp } from '../styles/shared';
 
@@ -64,7 +65,7 @@ const SurchargeCalculator: React.FC<SurchargeCalculatorProps> = ({ onAddToQuotat
       surcharge = fee * (activeBulkTier.percentSurcharge / 100);
     }
     const surchargeTotal = surcharge * qty;
-    const vatAmount = surchargeTotal * 0.08;
+    const vatAmount = surchargeTotal * VAT_RATE;
     return { baseTotal: fee * qty, surchargeTotal, surchargePerUnit: surcharge, vatAmount, grandTotal: (fee * qty) + surchargeTotal + vatAmount };
   };
 
@@ -72,7 +73,7 @@ const SurchargeCalculator: React.FC<SurchargeCalculatorProps> = ({ onAddToQuotat
 
   const handleSubmit = () => {
     if (totals.surchargeTotal === 0) return;
-    const finalSurchargePerUnit = Math.round(totals.surchargePerUnit * 1.08);
+    const finalSurchargePerUnit = Math.round(totals.surchargePerUnit * VAT_MULTIPLIER);
     localStorage.setItem('pending_do_surcharge', JSON.stringify({
       amount: finalSurchargePerUnit, quantity: parseInt(quantity) || 1, cargoType, contType, timestamp: Date.now()
     }));

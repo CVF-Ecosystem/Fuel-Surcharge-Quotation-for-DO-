@@ -1,14 +1,9 @@
-import crypto from "crypto";
 import { getConfig, setConfig, insertAuditLog } from "./db.js";
 
 // ─── Environment config ──────────────────────────────────────────────────────
 export const PORT = Number(process.env.PORT) || 3000;
-export const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/logipro";
-
-// ─── Token generation helper ─────────────────────────────────────────────────
-export function generateToken(username: string, passwordHash: string): string {
-  return crypto.createHmac("sha256", passwordHash).update(username).digest("hex");
-}
+// Chỉ dùng để tham khảo/log; việc chọn DB nằm ở db.ts.
+export const DATABASE_URL = process.env.DATABASE_URL || "";
 
 // ─── Fallback config ─────────────────────────────────────────────────────────
 const DEFAULT_FALLBACK = { price: 35440, date: "2026-03-26" };

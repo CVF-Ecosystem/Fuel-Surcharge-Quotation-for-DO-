@@ -14,16 +14,19 @@ const History: React.FC = () => {
     (q.customerName && q.customerName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa báo giá này?')) {
-      logiStorage.deleteQuotation(id);
-      setQuotations(logiStorage.getQuotations());
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa báo giá này?')) return;
+    try {
+      await logiStorage.deleteQuotation(id);
+      setQuotations(await logiStorage.getQuotations());
+    } catch (err: any) {
+      window.alert(`Không xóa được báo giá: ${err?.message || 'lỗi không xác định'}`);
     }
   };
 
   const statusBadge = (status: string) => {
     if (status === 'sent') return S.badgeInfo;
-    if (status === 'approved') return S.badgeSuccess;
+    if (status === 'accepted') return S.badgeSuccess;
     if (status === 'rejected') return S.badgeDanger;
     return S.badgeDefault;
   };
@@ -83,14 +86,14 @@ const History: React.FC = () => {
                     </span>
                   </td>
                   <td className={S.tdTotal}>
-                    <span className={S.totalText}>{q.totalAmount ? q.totalAmount.toLocaleString() : '0'}</span>
+                    <span className={S.totalText}>{q.total ? Number(q.total).toLocaleString() : '0'}</span>
                   </td>
                   <td className={S.tdStatus}>
                     <div className={S.statusCenter}>
                       <span className={statusBadge(q.status)}>
                         {q.status === 'draft' && 'Nháp'}
                         {q.status === 'sent' && 'Đã gửi'}
-                        {q.status === 'approved' && 'Chấp nhận'}
+                        {q.status === 'accepted' && 'Chấp nhận'}
                         {q.status === 'rejected' && 'Từ chối'}
                       </span>
                     </div>

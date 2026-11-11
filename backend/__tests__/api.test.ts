@@ -2,21 +2,6 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
 
 // ─── 1. Config module tests ─────────────────────────────────────────────────
 describe("backend/config", () => {
-  it("generateToken returns consistent HMAC hex", async () => {
-    const { generateToken } = await import("../config.js");
-    const token1 = generateToken("admin", "hash123");
-    const token2 = generateToken("admin", "hash123");
-    expect(token1).toBe(token2);
-    expect(token1).toMatch(/^[a-f0-9]{64}$/);
-  });
-
-  it("generateToken differs for different inputs", async () => {
-    const { generateToken } = await import("../config.js");
-    const t1 = generateToken("admin", "hash1");
-    const t2 = generateToken("admin", "hash2");
-    expect(t1).not.toBe(t2);
-  });
-
   it("PORT defaults to 3000", async () => {
     const { PORT } = await import("../config.js");
     expect(PORT).toBe(3000);

@@ -21,7 +21,7 @@ interface Props {
   customers: Customer[];
   items: RowItem[];
   tariffList: TariffItem[];
-  services: Array<{ id: string; name: string; unit?: string; price?: number }>;
+  services: Array<{ id?: string; name: string; unit?: string; price?: number }>;
   updateRow: (id: string, patch: Partial<RowItem>) => void;
   removeRow: (id: string) => void;
   addRow: () => void;

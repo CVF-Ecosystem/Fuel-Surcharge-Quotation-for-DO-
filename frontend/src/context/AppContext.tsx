@@ -50,6 +50,8 @@ interface AppContextType {
   fetchData: () => Promise<void>;
 }
 
+const AUTO_SYNC_FLAG = 'logipro_auto_sync_day';
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -68,29 +70,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [reconLogs, setReconLogs] = useState<ReconciliationLog[]>([]);
   const [pendingSurcharge, setPendingSurcharge] = useState<{ amount: number; quantity: number; cargoType: string } | null>(null);
   const [pendingCustomer, setPendingCustomer] = useState<Customer | null>(null);
-
-  const upsertFuelPrice = (
-    currentPrices: FuelPrice[],
-    nextEntry: FuelPrice,
-    scanDateToCleanup?: string
-  ) => {
-    const normalized = currentPrices.filter(price => !(
-      scanDateToCleanup &&
-      scanDateToCleanup !== nextEntry.date &&
-      price.date === scanDateToCleanup &&
-      price.fuelType === nextEntry.fuelType &&
-      price.priceV1 === nextEntry.priceV1
-    ));
-    const existingIndex = normalized.findIndex(
-      price => price.date === nextEntry.date && price.fuelType === nextEntry.fuelType
-    );
-    if (existingIndex >= 0) {
-      const updated = [...normalized];
-      updated[existingIndex] = { ...updated[existingIndex], ...nextEntry };
-      return updated;
-    }
-    return [...normalized, nextEntry];
-  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -145,46 +124,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUserDisplayName('');
       }
 
-      // Auto-sync with offset 08:00 AM logic
+      // Đồng bộ giá hôm nay từ Petrolimex.
+      // Server đã tự đồng bộ lúc 6h sáng và khi khởi động, nên đây chỉ là lưới an toàn:
+      // chỉ chạy khi đã đăng nhập (endpoint ghi cần token), tối đa 1 lần/ngày/trình duyệt,
+      // và để SERVER lưu từng bản ghi — không ghi đè cả bảng giá như trước
+      // (cách cũ làm mất giá đang ghim và dễ đè dữ liệu của lần sửa khác).
+      const hasSession = Boolean(sessionStorage.getItem("logipro_token"));
       const todayStr = getVietnamTodayIsoDate();
       const hasTodayPrice = storedPrices.some(p => {
         if (p.fuelType !== "Dầu DO 0,05S-II") return false;
         const surchargeDate = normalizeDateInput(getSurchargeEffectiveAt(p) || p.date);
-        return surchargeDate === todayStr;
+        return surchargeDate === todayStr || p.date === todayStr;
       });
 
-      if (!hasTodayPrice) {
+      if (hasSession && !hasTodayPrice && sessionStorage.getItem(AUTO_SYNC_FLAG) !== todayStr) {
+        sessionStorage.setItem(AUTO_SYNC_FLAG, todayStr);
         try {
-          const res = await fetch(`${API_BASE}/api/petrolimex-sync`);
-          const json = await res.json();
-          if (json.success && json.data && json.data.parsedFromWeb) {
-            const newPrice = Number(json.data.priceV1);
-            const sourceDate = normalizeDateInput(json.data.effectiveDate) || todayStr;
-            const surchargeDate = normalizeDateInput(
-              getSurchargeEffectiveAt({
-                id: 'auto-sync-preview',
-                date: sourceDate,
-                effectiveAt: json.data.effectiveAt,
-                fuelType: "Dầu DO 0,05S-II",
-                priceV1: newPrice
-              }) || sourceDate
-            ) || todayStr;
-            const autoPrice: FuelPrice = {
-              id: Date.now().toString(),
-              date: surchargeDate,
-              effectiveAt: json.data.effectiveAt || `${sourceDate}T00:00:00+07:00`,
-              fuelType: "Dầu DO 0,05S-II",
-              priceV1: newPrice
-            };
-            const updated = upsertFuelPrice(storedPrices, autoPrice, todayStr);
-            const existing = storedPrices.find(price => price.date === surchargeDate && price.fuelType === autoPrice.fuelType);
-            if (!existing || existing.priceV1 !== newPrice || updated.length !== storedPrices.length) {
-              setPrices(updated);
-              await logiStorage.setPrices(updated);
-              console.log(`[Auto-Sync] ✅ Đã đồng bộ giá áp dụng ${surchargeDate}: ${newPrice.toLocaleString()} đ`);
+          // Xem trước (GET, dùng cache): chỉ lưu khi cào được giá thật, không tự lưu giá dự phòng.
+          const preview = await (await fetch(`${API_BASE}/api/petrolimex-sync`)).json();
+          if (preview.success && preview.data?.parsedFromWeb) {
+            const res = await fetch(`${API_BASE}/api/petrolimex-sync`, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${sessionStorage.getItem("logipro_token")}` }
+            });
+            const json = await res.json();
+            if (json.success && json.saved) {
+              setPrices(await logiStorage.getPrices());
+              console.log(`[Auto-Sync] ✅ ${json.message}`);
             }
-          } else if (json.success && json.data) {
-            console.warn(`[Auto-Sync] ⚠️ Scraper trả về fallback (${json.data.priceV1.toLocaleString()} đ) — không tự thêm.`);
+          } else if (preview.success && preview.data) {
+            console.warn(`[Auto-Sync] ⚠️ Scraper trả về fallback (${Number(preview.data.priceV1).toLocaleString()} đ) — không tự thêm.`);
           }
         } catch (e) {
           console.error("Auto Sync Failed", e);

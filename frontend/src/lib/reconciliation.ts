@@ -9,6 +9,7 @@ import {
   normalizeDateInput
 } from './fuelPrices';
 import { FuelPrice, ReconciliationLog, Tier } from '../types';
+import { VAT_MULTIPLIER } from './constants';
 
 export const DIESEL_FUEL_TYPE = 'Dầu DO 0,05S-II';
 const REQUIRED_HEADERS = ['Số lệnh', 'Số PIN', 'Ngày lệnh', 'Số container', 'KC ISO', 'F/E', 'Ghi chú'];
@@ -17,6 +18,30 @@ const CURRENT_SESSION_STORAGE_KEY = 'logipro_reconciliation_current_session';
 const ACTIVE_TAB_STORAGE_KEY = 'logipro_reconciliation_active_tab';
 const COMPARISON_SESSION_STORAGE_KEY = 'logipro_reconciliation_comparison_session';
 const COMPARISON_HISTORY_STORAGE_KEY = 'logipro_reconciliation_comparison_history';
+
+
+/**
+ * localStorage có hạn mức (~5MB) và có thể bị chặn. Ghi thất bại không được làm hỏng
+ * luồng đối soát; trả false để nơi gọi biết dữ liệu chưa được lưu.
+ */
+const safeSetItem = (key: string, value: string): boolean => {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.warn(`[Reconciliation] Không lưu được "${key}" vào localStorage (có thể đã đầy):`, error);
+    return false;
+  }
+};
+
+/** Ghi danh sách (mới nhất đứng đầu); nếu đầy bộ nhớ thì bỏ dần các bản cũ nhất cho đến khi ghi được. */
+const persistListTrimmingOldest = <T,>(key: string, list: T[]): T[] => {
+  for (let keep = list.length; keep > 0; keep = Math.floor(keep / 2) || (keep > 1 ? 1 : 0)) {
+    const candidate = list.slice(0, keep);
+    if (safeSetItem(key, JSON.stringify(candidate))) return candidate;
+  }
+  return [];
+};
 
 export type SupportedContainerType = '20F' | '40F' | '20E' | '40E';
 export type ReconciliationStatus = 'increase' | 'decrease' | 'same' | 'missing';
@@ -476,7 +501,7 @@ export const saveReconciliationImportHistory = (
   const nextList = [nextItem, ...existing].slice(0, 30);
 
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(IMPORT_HISTORY_STORAGE_KEY, JSON.stringify(nextList));
+    return persistListTrimmingOldest(IMPORT_HISTORY_STORAGE_KEY, nextList);
   }
 
   return nextList;
@@ -486,7 +511,7 @@ export const deleteReconciliationImportHistory = (id: string): ReconciliationImp
   const nextList = loadReconciliationImportHistory().filter(item => item.id !== id);
 
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(IMPORT_HISTORY_STORAGE_KEY, JSON.stringify(nextList));
+    safeSetItem(IMPORT_HISTORY_STORAGE_KEY, JSON.stringify(nextList));
   }
 
   return nextList;
@@ -510,7 +535,7 @@ export const loadReconciliationCurrentSession = (): ReconciliationCurrentSession
 
 export const saveReconciliationCurrentSession = (session: ReconciliationCurrentSession): void => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(CURRENT_SESSION_STORAGE_KEY, JSON.stringify(session));
+  safeSetItem(CURRENT_SESSION_STORAGE_KEY, JSON.stringify(session));
 };
 
 export const clearReconciliationCurrentSession = (): void => {
@@ -525,7 +550,7 @@ export const loadReconciliationActiveTab = (): string | null => {
 
 export const saveReconciliationActiveTab = (tab: string): void => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+  safeSetItem(ACTIVE_TAB_STORAGE_KEY, tab);
 };
 
 // ─── Cross-day comparison session persistence ────────────────────────────────
@@ -540,7 +565,7 @@ export interface ComparisonSessionData {
 
 export const saveComparisonSession = (session: ComparisonSessionData): void => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(COMPARISON_SESSION_STORAGE_KEY, JSON.stringify(session));
+  safeSetItem(COMPARISON_SESSION_STORAGE_KEY, JSON.stringify(session));
 };
 
 export const loadComparisonSession = (): ComparisonSessionData | null => {
@@ -580,7 +605,7 @@ export const saveComparisonHistory = (item: Omit<ComparisonHistoryItem, 'id' | '
     savedAt: new Date().toISOString(),
   };
   const updatedHistory = [newItem, ...history].slice(0, 50); // Keep last 50
-  window.localStorage.setItem(COMPARISON_HISTORY_STORAGE_KEY, JSON.stringify(updatedHistory));
+  persistListTrimmingOldest(COMPARISON_HISTORY_STORAGE_KEY, updatedHistory);
 };
 
 export const loadComparisonHistory = (): ComparisonHistoryItem[] => {
@@ -599,7 +624,7 @@ export const deleteComparisonHistoryItem = (id: string): void => {
   if (typeof window === 'undefined') return;
   const history = loadComparisonHistory();
   const updated = history.filter(item => item.id !== id);
-  window.localStorage.setItem(COMPARISON_HISTORY_STORAGE_KEY, JSON.stringify(updated));
+  safeSetItem(COMPARISON_HISTORY_STORAGE_KEY, JSON.stringify(updated));
 };
 
 export const buildManualReconciliationResult = ({
@@ -680,10 +705,10 @@ export const exportProcessedRowsToExcel = async (
       containerType: row.containerType ?? 'Không rõ',
       deltaVat: null
     });
-    // Set VAT formula: =<delta_cell>*1.08
+    // Set VAT formula: =<delta_cell>*VAT_MULTIPLIER
     const deltaCol = String.fromCharCode(64 + deltaColIndex);
     const rowNum = excelRow.number;
-    excelRow.getCell('deltaVat').value = { formula: `${deltaCol}${rowNum}*1.08` } as any;
+    excelRow.getCell('deltaVat').value = { formula: `${deltaCol}${rowNum}*${VAT_MULTIPLIER}` } as any;
   });
 
   worksheet.views = [{ state: 'frozen', ySplit: 1 }];
@@ -1110,7 +1135,7 @@ export const exportCrossDayComparisonToExcel = async (
       const values = columns.map(col => {
         if (col.key === 'stt') return idx + 1;
         if (col.key === 'containerType') return row.containerType ?? 'Không rõ';
-        if (col.key === 'surchargeDeltaVat') return row.surchargeDelta !== null ? Math.round(row.surchargeDelta * 1.08) : null;
+        if (col.key === 'surchargeDeltaVat') return row.surchargeDelta !== null ? Math.round(row.surchargeDelta * VAT_MULTIPLIER) : null;
         return (row as unknown as Record<string, unknown>)[col.key] ?? null;
       });
       sheet.addRow(values);

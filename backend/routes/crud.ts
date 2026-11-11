@@ -1,141 +1,86 @@
 import { Router } from "express";
-import { TABLE_GETTERS, TABLE_SETTERS, execute, query } from "../db.js";
+import type { Request, Response } from "express";
+import {
+  TABLE_GETTERS, TABLE_SETTERS,
+  upsertPrice, setPriceValue, publishPriceById, clearPublishedPrice,
+} from "../db.js";
 import { logAudit } from "../config.js";
-import { CrudArraySchema, validateBody } from "../schemas.js";
+import { PriceEditSchema, PriceUpsertSchema, tableSchema, validateBody } from "../schemas.js";
 import { verifyToken } from "./auth.js";
+import { extractBearerToken } from "../utils/sessions.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
+const DEFAULT_FUEL_TYPE = "Dầu DO 0,05S-II";
+
+/** Trả 401 và false nếu chưa đăng nhập. */
+function requireAuth(req: Request, res: Response, message = "Unauthorized"): boolean {
+  if (verifyToken(extractBearerToken(req.headers.authorization))) return true;
+  res.status(401).json({ success: false, message });
+  return false;
+}
+
+const fmt = (n: number) => n.toLocaleString("vi-VN");
+
 // ─── Single price upsert (1 date = 1 price) ─────────────────────────────────
-router.post("/prices/upsert", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
+router.post("/prices/upsert", asyncHandler(async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const body = validateBody(PriceUpsertSchema, req.body, res);
+  if (!body) return;
 
-  const { date, fuelType, priceV1 } = req.body || {};
-  if (!date || !priceV1) {
-    return res.status(400).json({ success: false, message: "Thiếu ngày hoặc giá." });
-  }
+  const { date, priceV1 } = body;
+  const result = await upsertPrice(date, body.fuelType || DEFAULT_FUEL_TYPE, priceV1);
 
-  try {
-    // Try native SQL first (PostgreSQL mode)
-    const result = await query(
-      `INSERT INTO fuel_prices (date, fuel_type, price_v1) VALUES ($1, $2, $3)
-       ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1
-       RETURNING id, (xmax = 0) AS inserted`,
-      [date, fuelType || "Dầu DO 0,05S-II", Number(priceV1)],
-    );
-
-    let rowId: number | string | undefined;
-    let wasInserted = true;
-
-    if (result.length > 0) {
-      // PostgreSQL returned a row — use it
-      const row = result[0] as any;
-      rowId = row.id;
-      wasInserted = row.inserted ?? true;
-    } else {
-      // In-memory mode: query() returned [] → use high-level getter/setter
-      const getter = TABLE_GETTERS["prices"];
-      const setter = TABLE_SETTERS["prices"];
-      if (getter && setter) {
-        const allPrices: any[] = await getter();
-        const existingIdx = allPrices.findIndex(
-          (p: any) => p.date === date && p.fuelType === (fuelType || "Dầu DO 0,05S-II")
-        );
-        if (existingIdx >= 0) {
-          // Update existing
-          wasInserted = false;
-          rowId = allPrices[existingIdx].id;
-          allPrices[existingIdx] = { ...allPrices[existingIdx], priceV1: Number(priceV1) };
-        } else {
-          // Insert new
-          wasInserted = true;
-          rowId = Date.now();
-          allPrices.push({
-            id: rowId,
-            date,
-            effectiveAt: `${date}T08:00:00+07:00`,
-            fuelType: fuelType || "Dầu DO 0,05S-II",
-            priceV1: Number(priceV1),
-            isPublished: false,
-          });
-        }
-        await setter(allPrices);
-      }
-    }
-
-    const action = wasInserted ? "Thêm" : "Cập nhật";
-    await logAudit("ADMIN_PRICE", `${action} giá: ${Number(priceV1).toLocaleString()}đ ngày ${date}`);
-    res.json({
-      success: true,
-      id: rowId,
-      message: `✅ ${action} giá ${Number(priceV1).toLocaleString()}đ cho ngày ${date}.`,
-    });
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
+  const action = result.inserted ? "Thêm" : "Cập nhật";
+  await logAudit("ADMIN_PRICE", `${action} giá: ${fmt(priceV1)}đ ngày ${date}`);
+  res.json({
+    success: true,
+    id: result.id,
+    message: `✅ ${action} giá ${fmt(priceV1)}đ cho ngày ${date}.`,
+  });
+}));
 
 // ─── Edit fuel price (only price, date stays) ────────────────────────────────
-router.put("/prices/:id", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
+router.put("/prices/:id", asyncHandler(async (req, res) => {
+  if (!requireAuth(req, res)) return;
   const id = Number(req.params.id);
-  const { priceV1 } = req.body || {};
-  if (!priceV1 || isNaN(id)) {
-    return res.status(400).json({ success: false, message: "Thiếu giá hoặc ID không hợp lệ." });
-  }
-  try {
-    await execute(
-      `UPDATE fuel_prices SET price_v1 = $1 WHERE id = $2`,
-      [Number(priceV1), id],
-    );
-    await logAudit("ADMIN_PRICE", `Sửa giá ID ${id} → ${Number(priceV1).toLocaleString()}đ`);
-    res.json({ success: true, message: `✅ Đã cập nhật giá thành ${Number(priceV1).toLocaleString()}đ.` });
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
-
-// ─── Publish / pin a fuel price ───────────────────────────────────────────────
-router.put("/prices/:id/publish", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
+  if (!Number.isInteger(id)) {
     return res.status(400).json({ success: false, message: "ID không hợp lệ." });
   }
-  try {
-    // Unpin all, then pin the selected one
-    await execute(`UPDATE fuel_prices SET is_published = FALSE`);
-    await execute(`UPDATE fuel_prices SET is_published = TRUE WHERE id = $1`, [id]);
-    await logAudit("ADMIN_PRICE", `Ghim giá ID ${id} lên Trang chủ`);
-    res.json({ success: true, message: `✅ Đã ghim giá lên Trang Chủ.` });
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
+  const body = validateBody(PriceEditSchema, req.body, res);
+  if (!body) return;
+
+  const found = await setPriceValue(id, body.priceV1);
+  if (!found) {
+    return res.status(404).json({ success: false, message: "Không tìm thấy giá cần sửa." });
   }
-});
+  await logAudit("ADMIN_PRICE", `Sửa giá ID ${id} → ${fmt(body.priceV1)}đ`);
+  res.json({ success: true, message: `✅ Đã cập nhật giá thành ${fmt(body.priceV1)}đ.` });
+}));
+
+// ─── Publish / pin a fuel price ───────────────────────────────────────────────
+router.put("/prices/:id/publish", asyncHandler(async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ success: false, message: "ID không hợp lệ." });
+  }
+  const found = await publishPriceById(id);
+  if (!found) {
+    return res.status(404).json({ success: false, message: "Không tìm thấy giá cần ghim." });
+  }
+  await logAudit("ADMIN_PRICE", `Ghim giá ID ${id} lên Trang chủ`);
+  res.json({ success: true, message: `✅ Đã ghim giá lên Trang Chủ.` });
+}));
 
 // ─── Unpin (revert to latest = default) ───────────────────────────────────────
-router.delete("/prices/publish", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  if (!verifyToken(token)) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-  try {
-    await execute(`UPDATE fuel_prices SET is_published = FALSE`);
-    await logAudit("ADMIN_PRICE", `Bỏ ghim giá — dùng giá mới nhất`);
-    res.json({ success: true, message: `✅ Đã bỏ ghim. Trang chủ sẽ hiển thị giá mới nhất.` });
-  } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
+router.delete("/prices/publish", asyncHandler(async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  await clearPublishedPrice();
+  await logAudit("ADMIN_PRICE", `Bỏ ghim giá — dùng giá mới nhất`);
+  res.json({ success: true, message: `✅ Đã bỏ ghim. Trang chủ sẽ hiển thị giá mới nhất.` });
+}));
 
 const protectedRoutes = [
   "prices", "tiers", "bulk_tiers", "customers", "services",
@@ -149,39 +94,23 @@ protectedRoutes.forEach(key => {
   const getter = TABLE_GETTERS[key];
   const setter = TABLE_SETTERS[key];
 
-  router.get(`/${urlSegment}`, async (req, res) => {
-    if (sensitiveKeys.has(key)) {
-      const token = (req.headers.authorization || "").replace("Bearer ", "");
-      if (!verifyToken(token)) {
-        return res.status(401).json({ success: false, message: "Unauthorized. Vui lòng đăng nhập quyền Admin." });
-      }
-    }
-    try {
-      const data = getter ? await getter() : [];
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(500).json({ success: false, message: e.message });
-    }
-  });
+  router.get(`/${urlSegment}`, asyncHandler(async (req, res) => {
+    if (sensitiveKeys.has(key) && !requireAuth(req, res, "Unauthorized. Vui lòng đăng nhập quyền Admin.")) return;
+    const data = getter ? await getter() : [];
+    res.json({ success: true, data });
+  }));
 
   if (setter) {
-    router.post(`/${urlSegment}`, async (req, res) => {
-      const token = (req.headers.authorization || "").replace("Bearer ", "");
-      if (!verifyToken(token)) {
-        return res.status(401).json({ success: false });
-      }
-      const data = validateBody(CrudArraySchema, req.body, res);
+    router.post(`/${urlSegment}`, asyncHandler(async (req, res) => {
+      if (!requireAuth(req, res)) return;
+      const data = validateBody(tableSchema(key), req.body, res);
       if (!data) return;
-      try {
-        await setter(data);
-        if (["prices", "tiers", "bulk_tiers"].includes(key)) {
-          await logAudit(`SYNC_${key.toUpperCase()}`, `Đồng bộ dữ liệu ${key} từ Admin`);
-        }
-        res.json({ success: true });
-      } catch (e: any) {
-        res.status(500).json({ success: false, message: e.message });
+      await setter(data);
+      if (["prices", "tiers", "bulk_tiers"].includes(key)) {
+        await logAudit(`SYNC_${key.toUpperCase()}`, `Đồng bộ dữ liệu ${key} từ Admin`);
       }
-    });
+      res.json({ success: true });
+    }));
   }
 });
 

@@ -1,30 +1,50 @@
 import express from "express";
+import type { NextFunction, Request, Response } from "express";
 import path from "path";
 import cors from "cors";
-import { initDB } from "./db.js";
+import { initDB, isPostgres, hasPriceForDate } from "./db.js";
 import { PORT } from "./config.js";
 import authRouter from "./routes/auth.js";
 import crudRouter from "./routes/crud.js";
 import syncRouter from "./routes/sync.js";
 import publicRouter from "./routes/public.js";
 import { cronSync } from "./scrapers/petrolimex.js";
-import { getVietnamDateTimeParts } from "./utils/vietnamTime.js";
+import { getVietnamDateTimeParts, getVietnamTodayIsoDate } from "./utils/vietnamTime.js";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 const FRONTEND_DIR = path.join(import.meta.dirname, "..", "frontend");
-
-// Serve legacy bao-gia static app
-const quotationAppPath = path.join(FRONTEND_DIR, "public", "bao-gia");
-app.use("/bao-gia", express.static(quotationAppPath));
 
 // Mount routers
 app.use("/api/auth",   authRouter);
 app.use("/api/public", publicRouter);
 app.use("/api",        crudRouter);
 app.use("/api",        syncRouter);
+
+// /api/* không khớp route nào → 404 JSON (không rơi xuống SPA fallback, không treo request)
+app.use("/api", (_req, res) => {
+  res.status(404).json({ success: false, message: "Not found" });
+});
+
+// ─── Error handler: mọi lỗi từ route (kể cả async) và JSON body hỏng ─────────
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) return;
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ success: false, message: "JSON không hợp lệ." });
+  }
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ success: false, message: "Dữ liệu quá lớn." });
+  }
+  console.error(`[Error] ${req.method} ${req.originalUrl}:`, err);
+  res.status(500).json({ success: false, message: err?.message || "Lỗi server" });
+});
+
+// Không để một promise bị bỏ quên làm sập server.
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
+});
 
 // ─── Daily 6:00 AM (Vietnam time) Scheduler ─────────────────────────────────
 function startDailyScheduler() {
@@ -64,14 +84,8 @@ function startDailyScheduler() {
   // ── Sync ngay khi khởi động nếu hôm nay chưa có giá ──────────────────────
   setTimeout(async () => {
     try {
-      const { getVietnamTodayIsoDate } = await import("./utils/vietnamTime.js");
-      const { query: dbQuery } = await import("./db.js");
       const today = getVietnamTodayIsoDate();
-      const rows = await dbQuery(
-        `SELECT id FROM fuel_prices WHERE date = $1 LIMIT 1`,
-        [today],
-      );
-      if (rows.length === 0) {
+      if (!(await hasPriceForDate(today))) {
         console.log(`[Scheduler] 🚀 Khởi động: Chưa có giá ngày ${today} → Chạy sync ngay...`);
         await cronSync();
       } else {
@@ -85,15 +99,18 @@ function startDailyScheduler() {
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 async function bootstrap() {
-  // 1. Init database (PostgreSQL hoặc In-Memory tùy công tắc trong db.ts)
+  // 1. Init database (PostgreSQL hoặc In-Memory tùy DATABASE_URL, xem db.ts)
   await initDB();
 
-  // 2. Seed default data (chỉ chạy khi dùng PostgreSQL — memory mode đã seed sẵn)
-  try {
-    const { ensureSeeded } = await import("./seed.js");
-    await ensureSeeded();
-  } catch (e: any) {
-    console.log("[DB] ⚙️ Bỏ qua seed (đang dùng in-memory mode):", e.message?.slice(0, 80));
+  // 2. Seed default data — chỉ cần với PostgreSQL (memory mode đã có sẵn dữ liệu mẫu)
+  if (isPostgres) {
+    try {
+      const { ensureSeeded } = await import("./seed.js");
+      await ensureSeeded();
+    } catch (e: any) {
+      // Không chặn khởi động: DB có thể đã có dữ liệu, chỉ bước nạp mặc định lỗi.
+      console.error("[DB] ❌ Seed dữ liệu mặc định thất bại:", e.message);
+    }
   }
 
   // 3. Start daily price sync scheduler
@@ -116,8 +133,7 @@ async function bootstrap() {
   } else {
     const distPath = path.join(FRONTEND_DIR, "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      if (req.path.startsWith("/api")) return;
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
     app.listen(PORT, "0.0.0.0", () => {

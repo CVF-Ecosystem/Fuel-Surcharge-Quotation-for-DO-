@@ -177,7 +177,8 @@ const AdminPanel: React.FC = () => {
     setSyncMsg("");
     try {
       // GET only → fetch price from web, populate form, do NOT auto-save
-      const res = await fetch(`${API_BASE}/api/petrolimex-sync?force=true`);
+      // force=true cần đăng nhập (bỏ qua cache → server gọi thẳng Petrolimex)
+      const res = await fetch(`${API_BASE}/api/petrolimex-sync?force=true`, { headers: authHeader() });
       const json = await res.json();
       if (json.success && json.data) {
         setNewPriceV1(json.data.priceV1.toString());
@@ -266,10 +267,11 @@ const AdminPanel: React.FC = () => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa lịch sử giá này?")) return;
     try {
       const updated = prices.filter(p => p.id !== id);
-      setPrices(updated);
       await logiStorage.setPrices(updated);
+      setPrices(updated); // chỉ đổi UI sau khi server đã lưu thành công
     } catch {
       setError("Lỗi khi xóa giá.");
+      await fetchData(); // đồng bộ lại với server
     }
   };
 

@@ -1,38 +1,65 @@
 import { Router } from "express";
+import type { Request } from "express";
 import bcrypt from "bcryptjs";
 import { findUserByUsername, getAllUsers, createUser, updateUser, deleteUser } from "../db.js";
-import { generateToken } from "../config.js";
-import { LoginSchema, validateBody } from "../schemas.js";
+import { LoginSchema, CreateUserSchema, UpdateUserSchema, validateBody } from "../schemas.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  createSession,
+  getSession,
+  revokeSession,
+  revokeUserSessions,
+  extractBearerToken,
+  loginBlockedForMs,
+  recordLoginFailure,
+  clearLoginFailures,
+  type Session,
+} from "../utils/sessions.js";
 
 const router = Router();
 
-// In-memory token store: token → { username, role, displayName }
-const activeTokens = new Map<string, { username: string; role: string; displayName: string }>();
+const getToken = (req: Request) => extractBearerToken(req.headers.authorization);
 
-router.post("/login", async (req, res) => {
+// Helper: kiểm tra token (export cho các route khác)
+export function verifyToken(token: string): Session | null {
+  return getSession(token);
+}
+
+router.post("/login", asyncHandler(async (req, res) => {
   const body = validateBody(LoginSchema, req.body, res);
   if (!body) return;
   const { username, password } = body;
 
+  const limiterKey = `${req.ip}|${username.toLowerCase()}`;
+  const blockedMs = loginBlockedForMs(limiterKey);
+  if (blockedMs > 0) {
+    res.setHeader("Retry-After", String(Math.ceil(blockedMs / 1000)));
+    return res.status(429).json({
+      success: false,
+      message: `Đăng nhập sai quá nhiều lần. Thử lại sau ${Math.ceil(blockedMs / 60000)} phút.`,
+    });
+  }
+
   const user = await findUserByUsername(username);
-  if (!user) {
+  const valid = user ? await bcrypt.compare(password, user.password_hash) : false;
+  if (!user || !valid) {
+    recordLoginFailure(limiterKey);
     return res.status(401).json({ success: false, message: "Sai tên đăng nhập hoặc mật khẩu." });
   }
 
-  const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) {
-    return res.status(401).json({ success: false, message: "Sai tên đăng nhập hoặc mật khẩu." });
-  }
-
-  const token = generateToken(user.username, user.password_hash);
-  activeTokens.set(token, { username: user.username, role: user.role, displayName: user.display_name });
+  clearLoginFailures(limiterKey);
+  const token = createSession({
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    displayName: user.display_name,
+  });
 
   res.json({ success: true, token, role: user.role, displayName: user.display_name });
-});
+}));
 
 router.get("/verify", (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = activeTokens.get(token);
+  const session = getSession(getToken(req));
   if (session) {
     res.json({ success: true, username: session.username, role: session.role, displayName: session.displayName });
   } else {
@@ -40,69 +67,95 @@ router.get("/verify", (req, res) => {
   }
 });
 
+router.post("/logout", (req, res) => {
+  revokeSession(getToken(req));
+  res.json({ success: true });
+});
+
 // ─── User management (admin only) ────────────────────────────────────────────
-router.get("/users", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = verifyToken(token);
-  if (!session || session.role !== "admin") {
+function requireAdmin(req: Request): Session | null {
+  const session = getSession(getToken(req));
+  return session && session.role === "admin" ? session : null;
+}
+
+router.get("/users", asyncHandler(async (req, res) => {
+  if (!requireAdmin(req)) {
     return res.status(403).json({ success: false, message: "Chỉ admin mới được quản lý users." });
   }
   const users = await getAllUsers();
   res.json({ success: true, data: users });
-});
+}));
 
-router.post("/users", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = verifyToken(token);
-  if (!session || session.role !== "admin") {
+router.post("/users", asyncHandler(async (req, res) => {
+  if (!requireAdmin(req)) {
     return res.status(403).json({ success: false, message: "Chỉ admin mới được thêm user." });
   }
-  const { username, password, displayName, role } = req.body;
-  if (!username || !password || !role) {
-    return res.status(400).json({ success: false, message: "Thiếu thông tin bắt buộc." });
-  }
-  if (!["admin", "thuongvu", "guest"].includes(role)) {
-    return res.status(400).json({ success: false, message: "Role không hợp lệ." });
-  }
-  const existing = await findUserByUsername(username);
+  const body = validateBody(CreateUserSchema, req.body, res);
+  if (!body) return;
+
+  const existing = await findUserByUsername(body.username);
   if (existing) {
     return res.status(409).json({ success: false, message: "Username đã tồn tại." });
   }
-  const hash = await bcrypt.hash(password, 10);
-  await createUser(username, hash, displayName || "", role);
+  const hash = await bcrypt.hash(body.password, 10);
+  await createUser(body.username, hash, body.displayName, body.role);
   res.json({ success: true, message: "Tạo user thành công." });
-});
+}));
 
-router.put("/users/:id", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = verifyToken(token);
-  if (!session || session.role !== "admin") {
+router.put("/users/:id", asyncHandler(async (req, res) => {
+  if (!requireAdmin(req)) {
     return res.status(403).json({ success: false, message: "Chỉ admin mới được sửa user." });
   }
   const id = Number(req.params.id);
-  const { displayName, role, password } = req.body;
-  if (!["admin", "thuongvu", "guest"].includes(role)) {
-    return res.status(400).json({ success: false, message: "Role không hợp lệ." });
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ success: false, message: "ID không hợp lệ." });
   }
-  const hash = password ? await bcrypt.hash(password, 10) : undefined;
-  await updateUser(id, displayName || "", role, hash);
-  res.json({ success: true, message: "Cập nhật user thành công." });
-});
+  const body = validateBody(UpdateUserSchema, req.body, res);
+  if (!body) return;
 
-router.delete("/users/:id", async (req, res) => {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
-  const session = verifyToken(token);
-  if (!session || session.role !== "admin") {
+  const users = await getAllUsers();
+  const target = users.find(u => u.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, message: "Không tìm thấy user." });
+  }
+  // Không để hệ thống không còn admin nào.
+  if (target.role === "admin" && body.role !== "admin" && users.filter(u => u.role === "admin").length <= 1) {
+    return res.status(400).json({ success: false, message: "Không thể hạ quyền admin cuối cùng." });
+  }
+
+  const hash = body.password ? await bcrypt.hash(body.password, 10) : undefined;
+  await updateUser(id, body.displayName, body.role, hash);
+
+  // Đổi mật khẩu / đổi role → các phiên đang mở của user đó phải đăng nhập lại.
+  if (hash || body.role !== target.role) revokeUserSessions(target.username);
+  res.json({ success: true, message: "Cập nhật user thành công." });
+}));
+
+router.delete("/users/:id", asyncHandler(async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin) {
     return res.status(403).json({ success: false, message: "Chỉ admin mới được xóa user." });
   }
   const id = Number(req.params.id);
-  await deleteUser(id);
-  res.json({ success: true, message: "Đã xóa user." });
-});
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ success: false, message: "ID không hợp lệ." });
+  }
+  if (id === admin.userId) {
+    return res.status(400).json({ success: false, message: "Không thể tự xóa tài khoản đang đăng nhập." });
+  }
 
-// Helper: middleware-style token check (exported for other routes)
-export function verifyToken(token: string): { username: string; role: string } | null {
-  return activeTokens.get(token) ?? null;
-}
+  const users = await getAllUsers();
+  const target = users.find(u => u.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, message: "Không tìm thấy user." });
+  }
+  if (target.role === "admin" && users.filter(u => u.role === "admin").length <= 1) {
+    return res.status(400).json({ success: false, message: "Không thể xóa admin cuối cùng." });
+  }
+
+  await deleteUser(id);
+  revokeUserSessions(target.username);
+  res.json({ success: true, message: "Đã xóa user." });
+}));
 
 export default router;

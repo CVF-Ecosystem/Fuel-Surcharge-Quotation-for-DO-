@@ -1,7 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { getFallbackConfig, logAudit } from "../config.js";
-import { query, execute } from "../db.js";
+import { upsertPrice, publishPriceByDate } from "../db.js";
 import { getVietnamTodayIsoDate } from "../utils/vietnamTime.js";
 
 // ─── Scraper cache ────────────────────────────────────────────────────────────
@@ -346,13 +346,7 @@ export async function syncAndSave(force = false): Promise<SyncResult & { saved: 
 
   // Luôn lưu vào ngày hôm nay — KHÔNG lưu vào effectiveDate (ngày Petro điều chỉnh)
   // INSERT nếu hôm nay chưa có, UPDATE nếu hôm nay đã có (cho phép cập nhật trong ngày)
-  const upsertResult = await query(
-    `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1, effective_at = EXCLUDED.effective_at
-     RETURNING (xmax = 0) AS inserted`,
-    [today, fuelType, priceV1, effectiveAt],
-  );
-  const wasInserted = upsertResult[0]?.inserted ?? true;
+  const { inserted: wasInserted } = await upsertPrice(today, fuelType, priceV1, effectiveAt);
 
   const action = wasInserted ? "Thêm mới" : "Cập nhật";
   await logAudit("SYNC_PRICE", `${action} giá: ${priceV1.toLocaleString()}đ ngày ${today} (hiệu lực từ ${effectiveDate}) (${result.data.source})`);
@@ -379,9 +373,10 @@ export async function cronSync(): Promise<void> {
 
     // Always publish today's price to homepage
     const today = getVietnamTodayIsoDate();
-    await execute(`UPDATE fuel_prices SET is_published = FALSE`);
-    await execute(`UPDATE fuel_prices SET is_published = TRUE WHERE date = $1`, [today]);
-    console.log(`[Cron] 📌 Đã ghim giá ngày ${today} lên Trang Chủ`);
+    const pinned = await publishPriceByDate(today);
+    console.log(pinned
+      ? `[Cron] 📌 Đã ghim giá ngày ${today} lên Trang Chủ`
+      : `[Cron] ⚠️ Không có giá ngày ${today} để ghim`);
   } catch (e: any) {
     console.error(`[Cron] ❌ Lỗi đồng bộ: ${e.message}`);
     try {

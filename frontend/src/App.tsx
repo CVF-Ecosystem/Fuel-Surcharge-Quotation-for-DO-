@@ -21,7 +21,7 @@ export default function App() {
   const {
     isAdminMode, setIsAdminMode, userRole, setUserRole, userDisplayName, setUserDisplayName,
     loading, error,
-    setPendingSurcharge, setPendingCustomer
+    setPendingSurcharge, setPendingCustomer, fetchData
   } = useAppContext();
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
@@ -81,6 +81,8 @@ export default function App() {
         setShowLoginModal(false);
         setLoginUsername("");
         setLoginPassword("");
+        // Tải dữ liệu chỉ dành cho người đã đăng nhập (khách hàng, báo giá, đối soát).
+        void fetchData();
       } else {
         setLoginError(json.message || "Tên đăng nhập hoặc mật khẩu không đúng.");
       }
@@ -90,6 +92,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // Thu hồi token phía server (không chờ kết quả), rồi xóa phiên cục bộ.
+    const token = sessionStorage.getItem("logipro_token");
+    if (token) {
+      fetch(`${API_BASE}/api/auth/logout`, { method: "POST", headers: { "Authorization": `Bearer ${token}` } }).catch(() => {});
+    }
     setIsAdminMode(false);
     setUserRole(null);
     setUserDisplayName('');

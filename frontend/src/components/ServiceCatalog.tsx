@@ -32,19 +32,27 @@ const ServiceCatalog: React.FC = () => {
     setShowForm(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  // Các hàm của logiStorage là async: phải await, nếu không setServices nhận Promise và trang trắng.
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.unit) return;
     const newService: Product = { id: editingService?.id || Date.now().toString(), ...formData, price: Number(formData.price) };
-    logiStorage.saveService(newService);
-    setServices(logiStorage.getServices());
-    setShowForm(false);
+    try {
+      await logiStorage.saveService(newService);
+      setServices(await logiStorage.getServices());
+      setShowForm(false);
+    } catch (err: any) {
+      window.alert(`Không lưu được dịch vụ: ${err?.message || 'lỗi không xác định'}`);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa dịch vụ này?")) {
-      logiStorage.deleteService(id);
-      setServices(logiStorage.getServices());
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa dịch vụ này?")) return;
+    try {
+      await logiStorage.deleteService(id);
+      setServices(await logiStorage.getServices());
+    } catch (err: any) {
+      window.alert(`Không xóa được dịch vụ: ${err?.message || 'lỗi không xác định'}`);
     }
   };
 

@@ -32,10 +32,12 @@ class StorageService {
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        // Có thể xử lý logout ở đây nếu token hết hạn
+      if (response.status === 401 && this.token) {
+        // Token hết hạn / bị thu hồi: xóa để UI quay về trạng thái chưa đăng nhập ở lần tải kế tiếp.
+        sessionStorage.removeItem('logipro_token');
+        throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
       }
-      throw new Error(`API Error: ${response.statusText}`);
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
 
     const json = await response.json();

@@ -106,4 +106,9 @@ export const T = {
 } as const;
 
 export type Lang = keyof typeof T;
-export type TStrings = typeof T.vi;
+// Cả vi và en đều dùng chung kiểu "chuỗi"; không để TS suy ra literal của riêng tiếng Việt.
+type Widen<V> = V extends string ? string
+  : V extends readonly (infer U)[] ? Widen<U>[]
+  : V extends object ? { -readonly [K in keyof V]: Widen<V[K]> }
+  : V;
+export type TStrings = Widen<typeof T.vi>;

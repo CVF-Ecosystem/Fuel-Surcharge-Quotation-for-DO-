@@ -1,4 +1,5 @@
 import pg from "pg";
+import { toIsoDate } from "./utils/dates.js";
 
 // Fix: Return DATE columns as 'YYYY-MM-DD' strings, not JavaScript Date objects.
 // OID 1082 = DATE type in PostgreSQL.
@@ -7,7 +8,8 @@ pg.types.setTypeParser(1082, (val: string) => val);
 const { Pool } = pg;
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/logipro",
+  // db.ts chỉ nạp module này khi DATABASE_URL đã được đặt.
+  connectionString: process.env.DATABASE_URL,
 });
 
 pool.on("error", (err) => {
@@ -55,13 +57,72 @@ export async function replacePrices(rows: any[], client?: pg.PoolClient) {
   const q = client ?? pool;
   await q.query("DELETE FROM fuel_prices");
   for (const r of rows) {
+    // is_published phải được ghi lại, nếu không mọi lần ghi đè bảng sẽ làm mất giá đang ghim.
     await q.query(
-      `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1, effective_at = EXCLUDED.effective_at`,
-      [r.date, r.fuelType || "Dầu DO 0,05S-II", r.priceV1, r.effectiveAt || null]
+      `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at, is_published) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1,
+         effective_at = EXCLUDED.effective_at, is_published = fuel_prices.is_published OR EXCLUDED.is_published`,
+      [toIsoDate(r.date), r.fuelType || "Dầu DO 0,05S-II", r.priceV1, r.effectiveAt || null, r.isPublished === true]
     );
   }
 }
+
+// ─── Fuel price: thao tác theo từng bản ghi (không ghi đè cả bảng) ───────────
+export async function upsertPrice(
+  date: string,
+  fuelType: string,
+  priceV1: number,
+  effectiveAt?: string | null,
+): Promise<{ id: number | string; inserted: boolean }> {
+  const rows = await query<{ id: number; inserted: boolean }>(
+    `INSERT INTO fuel_prices (date, fuel_type, price_v1, effective_at) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (date) DO UPDATE SET fuel_type = EXCLUDED.fuel_type, price_v1 = EXCLUDED.price_v1,
+       effective_at = COALESCE(EXCLUDED.effective_at, fuel_prices.effective_at)
+     RETURNING id, (xmax = 0) AS inserted`,
+    [date, fuelType, priceV1, effectiveAt ?? null],
+  );
+  return { id: rows[0].id, inserted: rows[0].inserted };
+}
+
+export async function setPriceValue(id: number, priceV1: number): Promise<boolean> {
+  const res = await pool.query(`UPDATE fuel_prices SET price_v1 = $1 WHERE id = $2`, [priceV1, id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function publishPriceById(id: number): Promise<boolean> {
+  return withTransaction(async (c) => {
+    await c.query(`UPDATE fuel_prices SET is_published = FALSE`);
+    const res = await c.query(`UPDATE fuel_prices SET is_published = TRUE WHERE id = $1`, [id]);
+    if ((res.rowCount ?? 0) === 0) throw new PriceNotFoundError();
+    return true;
+  }).catch((e) => {
+    if (e instanceof PriceNotFoundError) return false;
+    throw e;
+  });
+}
+
+export async function publishPriceByDate(date: string): Promise<boolean> {
+  return withTransaction(async (c) => {
+    await c.query(`UPDATE fuel_prices SET is_published = FALSE`);
+    const res = await c.query(`UPDATE fuel_prices SET is_published = TRUE WHERE date = $1`, [date]);
+    if ((res.rowCount ?? 0) === 0) throw new PriceNotFoundError();
+    return true;
+  }).catch((e) => {
+    if (e instanceof PriceNotFoundError) return false;
+    throw e;
+  });
+}
+
+export async function clearPublishedPrice(): Promise<void> {
+  await pool.query(`UPDATE fuel_prices SET is_published = FALSE`);
+}
+
+export async function hasPriceForDate(date: string): Promise<boolean> {
+  const rows = await query(`SELECT 1 FROM fuel_prices WHERE date = $1 LIMIT 1`, [date]);
+  return rows.length > 0;
+}
+
+class PriceNotFoundError extends Error {}
 
 // tiers
 export async function getAllTiers() {
@@ -75,7 +136,7 @@ export async function replaceTiers(rows: any[], client?: pg.PoolClient) {
   for (const r of rows) {
     await q.query(
       "INSERT INTO tiers (min_price, max_price, surcharge_20f, surcharge_40f, surcharge_20e, surcharge_40e) VALUES ($1,$2,$3,$4,$5,$6)",
-      [r.minPrice, r.maxPrice, r.surcharge20F, r.surcharge40F, r.surcharge20E, r.surcharge40E]
+      [r.minPrice, r.maxPrice, r.surcharge20F ?? 0, r.surcharge40F ?? 0, r.surcharge20E ?? 0, r.surcharge40E ?? 0]
     );
   }
 }
@@ -91,7 +152,7 @@ export async function replaceBulkTiers(rows: any[], client?: pg.PoolClient) {
   for (const r of rows) {
     await q.query(
       "INSERT INTO bulk_tiers (min_price, max_price, percent_surcharge) VALUES ($1,$2,$3)",
-      [r.minPrice, r.maxPrice, r.percentSurcharge]
+      [r.minPrice, r.maxPrice, r.percentSurcharge ?? 0]
     );
   }
 }
@@ -106,7 +167,7 @@ export async function replaceCustomers(rows: any[], client?: pg.PoolClient) {
   for (const r of rows) {
     await q.query(
       "INSERT INTO customers (name, email, phone, address, tax_code, status) VALUES ($1,$2,$3,$4,$5,$6)",
-      [r.name, r.email, r.phone, r.address, r.taxCode, r.status || "active"]
+      [r.name, r.email ?? null, r.phone ?? null, r.address ?? null, r.taxCode ?? null, r.status || "active"]
     );
   }
 }
@@ -121,7 +182,7 @@ export async function replaceServices(rows: any[], client?: pg.PoolClient) {
   for (const r of rows) {
     await q.query(
       "INSERT INTO services (name, unit, price, category) VALUES ($1,$2,$3,$4)",
-      [r.name, r.unit, r.price, r.category]
+      [r.name, r.unit, r.price ?? 0, r.category ?? null]
     );
   }
 }
@@ -146,7 +207,7 @@ export async function replaceQuotations(rows: any[], client?: pg.PoolClient) {
     const res = await q.query(
       `INSERT INTO quotations (quotation_no, customer_name, date, total, status, created_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [r.quotationNo, r.customerName, r.date || null, r.total || 0, r.status || "draft", r.createdBy]
+      [r.quotationNo ?? null, r.customerName ?? null, toIsoDate(r.date), r.total || 0, r.status || "draft", r.createdBy ?? null]
     );
     const qId = res.rows[0].id;
     if (Array.isArray(r.items)) {
@@ -154,7 +215,7 @@ export async function replaceQuotations(rows: any[], client?: pg.PoolClient) {
         await q.query(
           `INSERT INTO quotation_items (quotation_id, name, unit, quantity, price, total, note)
            VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [qId, item.name, item.unit, item.quantity, item.price, item.total, item.note]
+          [qId, item.name ?? null, item.unit ?? null, item.quantity ?? 0, item.price ?? 0, item.total ?? 0, item.note ?? null]
         );
       }
     }
@@ -180,9 +241,9 @@ export async function replaceReconLogs(rows: any[], client?: pg.PoolClient) {
         fuel_price_at_booking, fuel_price_now, surcharge_at_booking, surcharge_now,
         delta, status, note, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [r.containerId, r.containerType, r.bookingDate, r.checkDate,
-       r.fuelPriceAtBooking, r.fuelPriceNow, r.surchargeAtBooking, r.surchargeNow,
-       r.delta, r.status, r.note, r.createdAt || new Date().toISOString()]
+      [r.containerId ?? null, r.containerType ?? null, toIsoDate(r.bookingDate), toIsoDate(r.checkDate),
+       r.fuelPriceAtBooking ?? 0, r.fuelPriceNow ?? 0, r.surchargeAtBooking ?? 0, r.surchargeNow ?? 0,
+       r.delta ?? 0, r.status ?? null, r.note ?? null, r.createdAt || new Date().toISOString()]
     );
   }
 }
@@ -195,7 +256,7 @@ export async function replaceRegistrationServices(rows: any[], client?: pg.PoolC
   const q = client ?? pool;
   await q.query("DELETE FROM registration_services");
   for (const r of rows) {
-    await q.query("INSERT INTO registration_services (name, unit) VALUES ($1,$2)", [r.name, r.unit]);
+    await q.query("INSERT INTO registration_services (name, unit) VALUES ($1,$2)", [r.name, r.unit ?? ""]);
   }
 }
 
@@ -224,16 +285,16 @@ export async function replaceRegistrations(rows: any[], client?: pg.PoolClient) 
       `INSERT INTO registrations (registration_number, registration_date, customer_name,
        customer_address, customer_phone, working_date, cargo_type, container_type, customer_notes, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [r.registrationNumber, r.registrationDate || null, r.customerName,
-       r.customerAddress, r.customerPhone, r.workingDate || null,
-       r.cargoType, r.containerType, r.customerNotes, r.createdAt || new Date().toISOString()]
+      [r.registrationNumber ?? null, toIsoDate(r.registrationDate), r.customerName ?? null,
+       r.customerAddress ?? null, r.customerPhone ?? null, toIsoDate(r.workingDate),
+       r.cargoType ?? null, r.containerType ?? null, r.customerNotes ?? null, r.createdAt || new Date().toISOString()]
     );
     const regId = res.rows[0].id;
     if (Array.isArray(r.items)) {
       for (const item of r.items) {
         await q.query(
           "INSERT INTO registration_items (registration_id, service_name, size, quantity) VALUES ($1,$2,$3,$4)",
-          [regId, item.serviceName, item.size, item.quantity]
+          [regId, item.serviceName ?? null, item.size ?? null, item.quantity ?? 0]
         );
       }
     }
